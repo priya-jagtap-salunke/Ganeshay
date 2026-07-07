@@ -1,0 +1,183 @@
+import { supabase } from '@/lib/supabase';
+import { Booking, BookingFormData } from '@/types/booking';
+import {
+  DEFAULT_MURTI_NAME,
+  GANESH_CHATURTHI_DELIVERY_DATE,
+} from '../constants';
+
+export async function fetchNextBookingNumber(): Promise<string> {
+  const { data, error } = await supabase.rpc('get_next_booking_number');
+  if (error) throw error;
+  return data as string;
+}
+
+export async function createBooking(
+  formData: BookingFormData,
+  bookingNumber: string
+): Promise<Booking> {
+  const pending = formData.price - formData.advance;
+
+  const { data, error } = await supabase
+    .from('bookings')
+    .insert({
+      booking_number: bookingNumber,
+      customer_name: formData.customer_name,
+      mobile: formData.mobile,
+      address: formData.address ?? null,
+      booking_date: formData.booking_date,
+      delivery_date: formData.delivery_date ?? GANESH_CHATURTHI_DELIVERY_DATE,
+      murti_name: formData.murti_name ?? DEFAULT_MURTI_NAME,
+      murti_size: formData.murti_size ?? null,
+      price: formData.price,
+      advance: formData.advance,
+      pending,
+      payment_mode: formData.payment_mode || null,
+      notes: formData.notes || null,
+      status: 'Pending',
+    })
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data;
+}
+
+export async function updateBooking(
+  id: string,
+  updates: Partial<Booking>
+): Promise<Booking> {
+  const { data, error } = await supabase
+    .from('bookings')
+    .update(updates)
+    .eq('id', id)
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data;
+}
+
+export async function fetchBookingById(id: string): Promise<Booking> {
+  const { data, error } = await supabase
+    .from('bookings')
+    .select('*')
+    .eq('id', id)
+    .single();
+
+  if (error) throw error;
+  return data;
+}
+
+export async function searchBookings(query: string): Promise<Booking[]> {
+  const q = query.trim();
+  if (!q) return [];
+
+  const { data, error } = await supabase
+    .from('bookings')
+    .select('*')
+    .or(
+      `booking_number.ilike.%${q}%,customer_name.ilike.%${q}%,mobile.ilike.%${q}%`
+    )
+    .order('created_at', { ascending: false })
+    .limit(50);
+
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function fetchTodayBookings(): Promise<Booking[]> {
+  const today = new Date().toISOString().split('T')[0];
+
+  const { data, error } = await supabase
+    .from('bookings')
+    .select('*')
+    .eq('booking_date', today)
+    .order('created_at', { ascending: false });
+
+  if (error) throw error;
+  return data ?? [];
+}
+
+export interface DashboardStats {
+  todayBookingsCount: number;
+  totalBookingsCount: number;
+  todayCollection: number;
+  pendingAmount: number;
+  deliveredCount: number;
+}
+
+export async function fetchDashboardStats(): Promise<DashboardStats> {
+  const today = new Date().toISOString().split('T')[0];
+
+  const { data: todayBookings, error: e1 } = await supabase
+    .from('bookings')
+    .select('advance, pending, status')
+    .eq('booking_date', today);
+
+  const { data: allPending, error: e2 } = await supabase
+    .from('bookings')
+    .select('pending')
+    .eq('status', 'Pending');
+
+  const { count: deliveredCount, error: e3 } = await supabase
+    .from('bookings')
+    .select('*', { count: 'exact', head: true })
+    .eq('status', 'Delivered');
+
+  const { data: totalRows, error: e4 } = await supabase
+    .from('bookings')
+    .select('id');
+
+  if (e1 || e2 || e3 || e4) throw e1 || e2 || e3 || e4;
+
+  const todayCollection =
+    todayBookings?.reduce((sum, b) => sum + Number(b.advance), 0) ?? 0;
+  const pendingAmount =
+    allPending?.reduce((sum, b) => sum + Number(b.pending), 0) ?? 0;
+
+  return {
+    todayBookingsCount: todayBookings?.length ?? 0,
+    totalBookingsCount: totalRows?.length ?? 0,
+    todayCollection,
+    pendingAmount,
+    deliveredCount: deliveredCount ?? 0,
+  };
+}
+
+export async function markDelivered(
+  booking: Booking,
+  amountReceived: number
+): Promise<Booking> {
+  const newAdvance = Number(booking.advance) + amountReceived;
+  const newPending = Number(booking.price) - newAdvance;
+  const status = newPending <= 0 ? 'Delivered' : 'Pending';
+
+  return updateBooking(booking.id, {
+    advance: newAdvance,
+    pending: Math.max(0, newPending),
+    status,
+  });
+}
+
+export async function deleteBooking(id: string): Promise<void> {
+  const { error } = await supabase.from('bookings').delete().eq('id', id);
+  if (error) throw error;
+}
+
+export async function updateBookingFromForm(
+  id: string,
+  formData: BookingFormData
+): Promise<Booking> {
+  const pending = formData.price - formData.advance;
+
+  return updateBooking(id, {
+    customer_name: formData.customer_name,
+    mobile: formData.mobile,
+    booking_date: formData.booking_date,
+    price: formData.price,
+    advance: formData.advance,
+    pending,
+    payment_mode: formData.payment_mode || null,
+    notes: formData.notes || null,
+  });
+}
