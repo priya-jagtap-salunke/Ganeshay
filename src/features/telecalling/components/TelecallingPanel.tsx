@@ -89,7 +89,8 @@ export function TelecallingPanel() {
   const pendingOutcomeIdRef = useRef<string | null>(null);
   const appStateRef = useRef<AppStateStatus>(AppState.currentState);
 
-  const isAndroid = Platform.OS === 'android';
+  const isNativeMobile =
+    Platform.OS === 'android' || Platform.OS === 'ios';
   const contactCount = contacts?.length ?? 0;
   const busy =
     importing || importMutation.isPending || deleteAllContacts.isPending;
@@ -155,10 +156,10 @@ export function TelecallingPanel() {
   }, [openOutcomeFor]);
 
   const handleCall = async (contact: TelecallingContact) => {
-    if (!isAndroid) {
+    if (!isNativeMobile) {
       Alert.alert(
-        'Android only',
-        'One-tap dialing is available on the Android app.'
+        'Calling unavailable',
+        'One-tap dialing is available in the iOS and Android apps.'
       );
       return;
     }
@@ -290,8 +291,8 @@ export function TelecallingPanel() {
   const handleImportFromPhone = () => {
     if (!isDeviceContactsSupported()) {
       Alert.alert(
-        'Android only',
-        'Importing from phone Contacts is available on the Android app only.'
+        'Contacts unavailable',
+        'Importing from phone Contacts is available in the iOS and Android apps only.'
       );
       return;
     }
@@ -299,13 +300,8 @@ export function TelecallingPanel() {
   };
 
   const handleImportFromCallLog = () => {
-    if (!isCallLogSupported()) {
-      Alert.alert(
-        'Android only',
-        'Importing from recent call logs is available on the Android app only.'
-      );
-      return;
-    }
+    // Android: recent call logs. iOS: same modal falls back to manual number entry
+    // (Apple does not allow apps to read the device call history).
     setCallLogPickerVisible(true);
   };
 
@@ -382,7 +378,7 @@ export function TelecallingPanel() {
 
     Alert.alert(
       'Start fresh tele-calling?',
-      `Delete all ${contactCount} contacts from tele-calling?\n\nCall history for these contacts will also be removed. You can import again from Excel, phone, or call log after this.\n\nThis cannot be undone.`,
+      `Delete all ${contactCount} contacts from tele-calling?\n\nCall history for these contacts will also be removed. You can import again afterward.\n\nThis cannot be undone.`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -410,12 +406,12 @@ export function TelecallingPanel() {
     );
   };
 
-  if (!isAndroid) {
+  if (!isNativeMobile) {
     return (
       <View style={styles.root}>
         <EmptyState
           icon="cellphone-off"
-          message="Tele-calling is available on the Android app only."
+          message="Tele-calling is available in the iOS and Android apps only."
         />
       </View>
     );
@@ -457,7 +453,7 @@ export function TelecallingPanel() {
             Phone
           </AppButton>
           <AppButton
-            icon="phone-log"
+            icon={isCallLogSupported() ? 'phone-log' : 'dialpad'}
             variant="tonal"
             onPress={handleImportFromCallLog}
             loading={busy}
@@ -466,7 +462,7 @@ export function TelecallingPanel() {
             contentStyle={styles.importBtnContent}
             labelStyle={styles.importBtnLabel}
           >
-            Call log
+            {isCallLogSupported() ? 'Call log' : 'Add #'}
           </AppButton>
         </View>
         {contactCount > 0 ? (
@@ -538,7 +534,9 @@ export function TelecallingPanel() {
               icon="phone-outgoing"
               message={
                 (contacts?.length ?? 0) === 0
-                  ? 'No contacts yet. Import from Excel, phone, or call log.'
+                  ? isCallLogSupported()
+                    ? 'No contacts yet. Import from Excel, phone, or call log.'
+                    : 'No contacts yet. Import from Excel or phone, or add a number.'
                   : searchQuery.trim()
                     ? 'No contacts found'
                     : 'Nothing in this filter.'

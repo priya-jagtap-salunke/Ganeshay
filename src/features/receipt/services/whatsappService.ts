@@ -4,9 +4,15 @@ import {
   buildNewBookingWhatsAppMessage,
   buildWhatsAppMessage,
   formatWhatsAppPhone,
-  getWhatsAppAppUrl,
   getWhatsAppWebUrl,
 } from '../utils/whatsappMessage';
+import {
+  openDeviceWhatsAppApp,
+  resolveInstalledWhatsAppApp,
+  showWhatsAppMissingAlert,
+  whatsAppSocialForKind,
+  type WhatsAppAppKind,
+} from '../utils/whatsappApp';
 import {
   downloadMurtiPhotoOnWeb,
   ensureShareableMurtiPhotoUri,
@@ -43,14 +49,6 @@ function normalizeShareUrl(uri: string): string {
   return fileUrl.startsWith('file://') ? fileUrl : `file://${fileUrl}`;
 }
 
-async function isWhatsAppInstalled(): Promise<boolean> {
-  try {
-    return await Linking.canOpenURL('whatsapp://send');
-  } catch {
-    return false;
-  }
-}
-
 function isUserCancelledShare(error: unknown): boolean {
   const msg = (error instanceof Error ? error.message : String(error)).toLowerCase();
   return (
@@ -71,85 +69,45 @@ function isWhatsAppMissingError(error: unknown): boolean {
   );
 }
 
-async function sharePdfViaReactNativeShare(
-  booking: Booking,
-  pdfUri: string,
-  message: string,
-  phone: string
-): Promise<void> {
+async function shareViaWhatsAppApp(params: {
+  title: string;
+  message: string;
+  phone: string;
+  appKind: WhatsAppAppKind;
+  url?: string;
+  type?: string;
+}): Promise<void> {
   const Share = (await import('react-native-share')).default;
+  const social = whatsAppSocialForKind(Share, params.appKind);
 
   await Share.shareSingle({
-    title: `Receipt ${booking.booking_number}`,
-    message,
-    url: normalizeShareUrl(pdfUri),
-    type: 'application/pdf',
-    social: Share.Social.WHATSAPP,
-    whatsAppNumber: phone,
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    title: params.title,
+    message: params.message,
+    social,
+    whatsAppNumber: params.phone,
+    ...(params.url
+      ? {
+          url: normalizeShareUrl(params.url),
+          type: params.type,
+        }
+      : {}),
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
   } as any);
-}
-
-async function shareImageViaReactNativeShare(
-  booking: Booking,
-  imageUri: string,
-  phone: string,
-  message?: string
-): Promise<void> {
-  const Share = (await import('react-native-share')).default;
-  const lower = imageUri.toLowerCase();
-  const type = lower.endsWith('.png')
-    ? 'image/png'
-    : lower.endsWith('.webp')
-      ? 'image/webp'
-      : 'image/jpeg';
-
-  await Share.shareSingle({
-    title: `Murti Photo ${booking.booking_number}`,
-    message:
-      message ?? `Murti photo for booking ${booking.booking_number}`,
-    url: normalizeShareUrl(imageUri),
-    type,
-    social: Share.Social.WHATSAPP,
-    whatsAppNumber: phone,
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  } as any);
-}
-
-async function shareFileFallback(
-  uri: string,
-  mimeType: string,
-  dialogTitle: string
-): Promise<void> {
-  const Sharing = await import('expo-sharing');
-  if (await Sharing.isAvailableAsync()) {
-    await Sharing.shareAsync(uri, {
-      mimeType,
-      dialogTitle,
-    });
-  }
-}
-
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 /**
  * New Booking WhatsApp: murti image + Marathi message + invoice PDF.
- * WhatsApp typically allows one attachment per share, so the reliable flow is:
- * 1) Murti image + full message to the customer number
- * 2) Invoice PDF to the same customer number
+ * Opens the installed WhatsApp / WhatsApp Business app only (not Messenger
+ * or the system share sheet).
  */
 async function shareNewBookingWhatsAppBundle(
   booking: Booking,
   phone: string,
   message: string,
   pdfUri: string,
-  murtiPhotoUri: string
+  murtiPhotoUri: string,
+  appKind: WhatsAppAppKind
 ): Promise<void> {
-  const Share = (await import('react-native-share')).default;
-  const photoUrl = normalizeShareUrl(murtiPhotoUri);
-  const pdfUrl = normalizeShareUrl(pdfUri);
   const lower = murtiPhotoUri.toLowerCase();
   const imageType = lower.endsWith('.png')
     ? 'image/png'
@@ -157,38 +115,31 @@ async function shareNewBookingWhatsAppBundle(
       ? 'image/webp'
       : 'image/jpeg';
 
-  // Step 1: Murti image + exact Marathi message (not PDF-only).
-  await Share.shareSingle({
+  await shareViaWhatsAppApp({
     title: `Murti Photo ${booking.booking_number}`,
     message,
-    url: photoUrl,
+    phone,
+    appKind,
+    url: murtiPhotoUri,
     type: imageType,
-    social: Share.Social.WHATSAPP,
-    whatsAppNumber: phone,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  } as any);
+  });
 
-  await delay(500);
+  await new Promise((resolve) => setTimeout(resolve, 500));
 
-  // Step 2: Invoice/Receipt PDF for the same booking + same customer.
   try {
-    await Share.shareSingle({
+    await shareViaWhatsAppApp({
       title: `Invoice ${booking.booking_number}`,
       message: '',
-      url: pdfUrl,
+      phone,
+      appKind,
+      url: pdfUri,
       type: 'application/pdf',
-      social: Share.Social.WHATSAPP,
-      whatsAppNumber: phone,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    } as any);
+    });
   } catch (pdfError) {
     if (isUserCancelledShare(pdfError)) return;
     console.warn('Invoice PDF WhatsApp share failed', pdfError);
-    await shareFileFallback(
-      pdfUri,
-      'application/pdf',
-      'Share Invoice PDF with Customer'
-    );
+    // Last resort: open WhatsApp chat with text; user can attach PDF manually.
+    await openDeviceWhatsAppApp(phone, message);
   }
 }
 
@@ -196,32 +147,43 @@ async function shareNativeFallback(
   phone: string,
   message: string,
   pdfUri: string,
-  murtiPhotoUri?: string
+  murtiPhotoUri: string | undefined,
+  appKind: WhatsAppAppKind
 ): Promise<void> {
-  const hasWhatsApp = await isWhatsAppInstalled();
-  if (!hasWhatsApp) {
-    Alert.alert(
-      'WhatsApp Not Installed',
-      'WhatsApp is not installed on this device. Please install WhatsApp or use Download PDF to share manually.'
-    );
-    return;
-  }
+  await openDeviceWhatsAppApp(phone, message);
 
-  // Prefer murti + message first when available, then invoice PDF.
-  if (murtiPhotoUri) {
-    await Linking.openURL(getWhatsAppAppUrl(phone, message));
-    await shareFileFallback(
-      murtiPhotoUri,
-      'image/jpeg',
-      'Share Murti Photo with Customer'
-    );
-    await delay(400);
-    await shareFileFallback(pdfUri, 'application/pdf', 'Share Invoice PDF with Customer');
-    return;
+  // Prefer package-targeted shareSingle over the system share sheet so Facebook
+  // Messenger / other apps never appear as the destination.
+  try {
+    if (murtiPhotoUri) {
+      const lower = murtiPhotoUri.toLowerCase();
+      const imageType = lower.endsWith('.png')
+        ? 'image/png'
+        : lower.endsWith('.webp')
+          ? 'image/webp'
+          : 'image/jpeg';
+      await shareViaWhatsAppApp({
+        title: `Murti Photo`,
+        message: '',
+        phone,
+        appKind,
+        url: murtiPhotoUri,
+        type: imageType,
+      });
+      await new Promise((resolve) => setTimeout(resolve, 400));
+    }
+    await shareViaWhatsAppApp({
+      title: `Receipt`,
+      message: '',
+      phone,
+      appKind,
+      url: pdfUri,
+      type: 'application/pdf',
+    });
+  } catch (error) {
+    if (isUserCancelledShare(error)) return;
+    console.warn('WhatsApp attachment fallback failed', error);
   }
-
-  await Linking.openURL(getWhatsAppAppUrl(phone, message));
-  await shareFileFallback(pdfUri, 'application/pdf', 'Attach Receipt PDF');
 }
 
 async function shareOnWeb(
@@ -262,6 +224,12 @@ export async function shareReceiptOnWhatsApp(
     return;
   }
 
+  const appKind = await resolveInstalledWhatsAppApp();
+  if (!appKind) {
+    showWhatsAppMissingAlert();
+    return;
+  }
+
   const shareableUri = await ensureShareablePdfUri(
     pdfUri,
     booking.booking_number
@@ -294,43 +262,76 @@ export async function shareReceiptOnWhatsApp(
         phone,
         message,
         shareableUri,
-        shareablePhotoUri
+        shareablePhotoUri,
+        appKind
       );
       return;
     }
 
-    await sharePdfViaReactNativeShare(booking, shareableUri, message, phone);
+    await shareViaWhatsAppApp({
+      title: `Receipt ${booking.booking_number}`,
+      message,
+      phone,
+      appKind,
+      url: shareableUri,
+      type: 'application/pdf',
+    });
 
-    // WhatsApp typically accepts one media item per share; send the murti
-    // photo as a follow-up share to the same customer chat.
     if (shareablePhotoUri) {
       try {
-        await shareImageViaReactNativeShare(
-          booking,
-          shareablePhotoUri,
-          phone
-        );
+        await shareViaWhatsAppApp({
+          title: `Murti Photo ${booking.booking_number}`,
+          message: `Murti photo for booking ${booking.booking_number}`,
+          phone,
+          appKind,
+          url: shareablePhotoUri,
+          type: 'image/jpeg',
+        });
       } catch (photoError) {
         if (isUserCancelledShare(photoError)) return;
         console.warn('Murti photo WhatsApp share failed', photoError);
-        await shareFileFallback(
-          shareablePhotoUri,
-          'image/jpeg',
-          'Share Murti Photo with Customer'
-        );
       }
     }
   } catch (error) {
     if (isUserCancelledShare(error)) return;
 
     if (isWhatsAppMissingError(error)) {
-      Alert.alert(
-        'WhatsApp Not Installed',
-        'Please install WhatsApp to share the receipt directly with your customer.'
-      );
-      return;
+      // Retry once with the other WhatsApp package if both might be present.
+      const alternate: WhatsAppAppKind =
+        appKind === 'consumer' ? 'business' : 'consumer';
+      try {
+        if (isNewBooking && shareablePhotoUri) {
+          await shareNewBookingWhatsAppBundle(
+            booking,
+            phone,
+            message,
+            shareableUri,
+            shareablePhotoUri,
+            alternate
+          );
+          return;
+        }
+        await shareViaWhatsAppApp({
+          title: `Receipt ${booking.booking_number}`,
+          message,
+          phone,
+          appKind: alternate,
+          url: shareableUri,
+          type: 'application/pdf',
+        });
+        return;
+      } catch {
+        showWhatsAppMissingAlert();
+        return;
+      }
     }
 
-    await shareNativeFallback(phone, message, shareableUri, shareablePhotoUri);
+    await shareNativeFallback(
+      phone,
+      message,
+      shareableUri,
+      shareablePhotoUri,
+      appKind
+    );
   }
 }

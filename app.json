@@ -20,6 +20,12 @@
         "NSCameraUsageDescription": "Allow Ganeshay to use the camera to photograph the selected murti.",
         "NSPhotoLibraryUsageDescription": "Allow Ganeshay to access your photos to capture murti photos and set your business logo.",
         "NSPhotoLibraryAddUsageDescription": "Allow Ganeshay to save murti photos when needed.",
+        "NSContactsUsageDescription": "Allow Ganeshay to read and save tele-calling contacts to your phone address book.",
+        "LSApplicationQueriesSchemes": [
+          "tel",
+          "whatsapp",
+          "whatsapp-business"
+        ],
         "ITSAppUsesNonExemptEncryption": false
       }
     },

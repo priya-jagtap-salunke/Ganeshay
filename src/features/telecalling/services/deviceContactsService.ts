@@ -7,18 +7,14 @@ import {
 } from '../utils/phoneNormalize';
 
 export function isDeviceContactsSupported(): boolean {
-  return Platform.OS === 'android';
+  return Platform.OS === 'android' || Platform.OS === 'ios';
 }
 
 export function showDeviceContactsUnavailableAlert(): void {
-  const message =
-    Platform.OS === 'ios'
-      ? 'Phone Contacts import and sync are available on Android only.'
-      : Platform.OS === 'web'
-        ? 'Phone Contacts import and sync are available on the Android app only.'
-        : 'Phone contacts need a standalone Android build with Contacts permissions.';
-
-  Alert.alert('Android only', message);
+  Alert.alert(
+    'Contacts unavailable',
+    'Phone Contacts import and sync are available in the iOS and Android apps only.'
+  );
 }
 
 async function openAppSettings(): Promise<void> {
@@ -59,7 +55,7 @@ export async function ensureContactsPermission(): Promise<boolean> {
         ? error.message
         : 'Could not request contacts permission';
     throw new Error(
-      `${message}. Rebuild the Android app after adding Contacts permissions.`
+      `${message}. Rebuild the app after adding Contacts permissions.`
     );
   }
 }
@@ -121,7 +117,9 @@ export interface LoadDeviceContactOptionsResult {
  */
 export async function loadDeviceContactOptions(): Promise<LoadDeviceContactOptionsResult> {
   if (!isDeviceContactsSupported()) {
-    throw new Error('Importing from phone Contacts is available on Android only.');
+    throw new Error(
+      'Importing from phone Contacts is available in the iOS and Android apps only.'
+    );
   }
 
   const granted = await ensureContactsPermission();
@@ -211,7 +209,7 @@ export interface SyncToDeviceResult {
 }
 
 /**
- * Add contacts to the Android address book when the mobile is not already present.
+ * Add contacts to the device address book when the mobile is not already present.
  * Duplicate detection: normalize to last 10 digits and compare against all device phone numbers.
  */
 export async function syncContactsToDevice(

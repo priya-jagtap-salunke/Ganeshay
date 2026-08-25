@@ -11,37 +11,55 @@ import {
 } from '../utils/murtiPhotoStorage';
 
 export const DUPLICATE_BOOKING_MESSAGE =
-  'Duplicate entry not allowed. This contact already has a booking.';
+  'Duplicate entry not allowed. A booking already exists for this customer name and contact number.';
 
-function isDuplicateMobileConstraintError(error: {
+function normalizeCustomerName(name: string): string {
+  return name.trim().replace(/\s+/g, ' ').toLowerCase();
+}
+
+function isDuplicateBookingConstraintError(error: {
   code?: string;
   message?: string;
 }): boolean {
   if (error.code !== '23505') return false;
   const message = error.message ?? '';
-  return /vendor_mobile|bookings_vendor_mobile|mobile/i.test(message);
+  return /vendor_name_mobile|vendor_mobile|bookings_vendor_mobile|customer_name|mobile/i.test(
+    message
+  );
 }
 
-/** Returns true if this vendor already has a booking for the same mobile number. */
-export async function bookingExistsForMobile(mobile: string): Promise<boolean> {
-  const normalized = normalizeMobile(mobile);
-  if (!normalized) return false;
+/**
+ * True when this vendor already has a booking with the same mobile AND
+ * the same customer name (either differing field allows a new booking).
+ */
+export async function bookingExistsForCustomer(
+  customerName: string,
+  mobile: string
+): Promise<boolean> {
+  const normalizedMobile = normalizeMobile(mobile);
+  const normalizedName = normalizeCustomerName(customerName);
+  if (!normalizedMobile || !normalizedName) return false;
 
   const { data, error } = await supabase
     .from('bookings')
-    .select('id, mobile')
-    .ilike('mobile', `%${normalized}%`)
+    .select('id, mobile, customer_name')
+    .ilike('mobile', `%${normalizedMobile}%`)
     .limit(100);
 
   if (error) throw error;
 
   return (data ?? []).some(
-    (row) => normalizeMobile(String(row.mobile ?? '')) === normalized
+    (row) =>
+      normalizeMobile(String(row.mobile ?? '')) === normalizedMobile &&
+      normalizeCustomerName(String(row.customer_name ?? '')) === normalizedName
   );
 }
 
-export async function assertNoDuplicateMobile(mobile: string): Promise<void> {
-  const exists = await bookingExistsForMobile(mobile);
+export async function assertNoDuplicateBooking(
+  customerName: string,
+  mobile: string
+): Promise<void> {
+  const exists = await bookingExistsForCustomer(customerName, mobile);
   if (exists) {
     throw new Error(DUPLICATE_BOOKING_MESSAGE);
   }
@@ -57,7 +75,7 @@ export async function createBooking(
   formData: BookingFormData,
   bookingNumber: string
 ): Promise<Booking> {
-  await assertNoDuplicateMobile(formData.mobile);
+  await assertNoDuplicateBooking(formData.customer_name, formData.mobile);
 
   const pending = formData.price - formData.advance;
 
@@ -83,7 +101,7 @@ export async function createBooking(
     .single();
 
   if (error) {
-    if (isDuplicateMobileConstraintError(error)) {
+    if (isDuplicateBookingConstraintError(error)) {
       throw new Error(DUPLICATE_BOOKING_MESSAGE);
     }
     throw error;

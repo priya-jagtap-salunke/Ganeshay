@@ -18,7 +18,7 @@ export async function dialMobile(mobile: string): Promise<void> {
     if (Platform.OS === 'web') {
       Alert.alert(
         'Calling unavailable',
-        'Phone calling is not available in the browser. Use the Android app to dial.'
+        'Phone calling is not available in the browser. Use the iOS or Android app to dial.'
       );
       return;
     }

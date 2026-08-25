@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  assertNoDuplicateMobile,
+  assertNoDuplicateBooking,
   createBooking,
   deleteBooking,
   fetchBookingById,
@@ -25,8 +25,11 @@ export function useCreateBooking() {
 
   return useMutation({
     mutationFn: async (formData: BookingSchemaType) => {
-      // Check before allocating a booking number so duplicates do not consume sequence.
-      await assertNoDuplicateMobile(formData.mobile);
+      // Block only when both name and mobile already match an existing booking.
+      await assertNoDuplicateBooking(
+        formData.customer_name,
+        formData.mobile
+      );
       const bookingNumber = await fetchNextBookingNumber();
       return createBooking(formData, bookingNumber);
     },

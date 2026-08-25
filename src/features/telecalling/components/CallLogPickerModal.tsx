@@ -167,7 +167,9 @@ export function CallLogPickerModal({
     <Modal visible={visible} animationType="slide" onRequestClose={onDismiss}>
       <View style={styles.container}>
         <View style={styles.header}>
-          <Text style={styles.title}>From call log</Text>
+          <Text style={styles.title}>
+            {isCallLogSupported() ? 'From call log' : 'Add contact'}
+          </Text>
           <IconButton icon="close" onPress={onDismiss} iconColor={colors.white} />
         </View>
 
@@ -253,7 +255,7 @@ export function CallLogPickerModal({
               <Text style={styles.subtitle}>
                 {isCallLogSupported()
                   ? 'Enter contact details manually'
-                  : 'Call logs are Android-only. Enter the number manually.'}
+                  : 'iPhone cannot share call history with apps. Enter the number manually.'}
               </Text>
 
               {error ? <Text style={styles.errorText}>{error}</Text> : null}
