@@ -9,6 +9,7 @@ import {
 } from 'react-native';
 import { Text, useTheme } from 'react-native-paper';
 import Animated, { FadeInDown } from 'react-native-reanimated';
+import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter, type Href } from 'expo-router';
 import { ScreenContainer } from '@/components/layout/ScreenContainer';
@@ -21,8 +22,14 @@ import { useTodayBookings } from '@/features/bookings/hooks/useTodayBookings';
 import { useBusinessDocumentSettings } from '@/features/settings/store/settingsStore';
 import { Booking } from '@/types/booking';
 import { openBookingDetails } from '@/utils/bookingNavigation';
+import { colors } from '@/theme/colors';
 import { elevation } from '@/theme/shadows';
 import { radius, spacing } from '@/theme/spacing';
+
+/** Soft screen wash — warm ivory into a light brand rose. */
+const DASHBOARD_BG = [colors.warmIvoryDark, colors.warmIvory, '#FFF7F5'] as const;
+/** Vendor header panel — ivory → soft rose → gold light (keeps dark title readable). */
+const VENDOR_HEADER_BG = ['#FFFBFF', '#FFF1EE', colors.goldLight] as const;
 
 /** Display serif for vendor title — matches receipt brand typography (no custom font package). */
 const vendorTitleFontFamily = Platform.select({
@@ -156,158 +163,185 @@ export default function DashboardScreen() {
   const hasVendorLogo = isRenderableBusinessLogo(businessLogo);
 
   return (
-    <ScreenContainer showBack={false}>
-      <ScrollView
-        style={styles.scroll}
-        contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}
-        nestedScrollEnabled
-      >
-        <View
-          style={styles.homeHeader}
-          accessibilityRole="header"
-          accessibilityLabel={`${vendorTitle} home`}
+    <ScreenContainer
+      showBack={false}
+      style={{ backgroundColor: colors.warmIvoryDark }}
+    >
+      <View style={styles.screenBody}>
+        <LinearGradient
+          colors={[...DASHBOARD_BG]}
+          locations={[0, 0.4, 1]}
+          start={{ x: 0.5, y: 0 }}
+          end={{ x: 0.5, y: 1 }}
+          style={StyleSheet.absoluteFillObject}
+          pointerEvents="none"
+        />
+        <ScrollView
+          style={styles.scroll}
+          contentContainerStyle={styles.scrollContent}
+          showsVerticalScrollIndicator={false}
+          nestedScrollEnabled
         >
-          {hasVendorLogo ? (
-            <BusinessLogo size={HOME_LOGO_SIZE} style={styles.homeHeaderLogo} />
-          ) : (
-            <BrandLogo
-              variant="icon"
-              size={HOME_LOGO_SIZE}
-              framed
-              style={styles.homeHeaderLogo}
-            />
-          )}
-          <View style={styles.homeHeaderText}>
-            <Text
-              variant="headlineSmall"
-              style={[
-                styles.homeHeaderTitle,
-                {
-                  color: theme.colors.onSurface,
-                  fontFamily: vendorTitleFontFamily,
-                },
-              ]}
-              numberOfLines={2}
-              ellipsizeMode="tail"
-            >
-              {vendorTitle}
-            </Text>
-            <Text
-              variant="labelMedium"
-              style={[
-                styles.homeHeaderSubtitle,
-                { color: theme.colors.onSurfaceVariant },
-              ]}
-              numberOfLines={1}
-            >
-              Bappaji.com
-            </Text>
-          </View>
-        </View>
-
-        <DashboardSection
-          title="Quick actions"
-          subtitle="Jump into common tasks"
-          icon="flash-outline"
-          contained
-          dense
-        >
-          <View style={[styles.actionsGrid, { gap: gridGap }]}>
-            <QuickAction
-              icon="plus-circle"
-              label="New Booking"
-              color={theme.colors.primary}
-              width={actionWidth}
-              emphasized
-              onPress={() => router.push('/(app)/booking/new')}
-            />
-            <QuickAction
-              icon="magnify"
-              label="Search"
-              color={theme.colors.tertiary}
-              width={actionWidth}
-              onPress={() => router.push('/(app)/booking/search')}
-            />
-            <QuickAction
-              icon="calendar-month"
-              label={`${year} Bookings`}
-              color={theme.colors.primary}
-              width={actionWidth}
-              onPress={() => router.push('/(app)/booking/year')}
-            />
-            <QuickAction
-              icon="phone-outgoing"
-              label="Tele-calling"
-              color={theme.colors.tertiary}
-              width={actionWidth}
-              onPress={() => router.push('/(app)/telecalling' as Href)}
-            />
-            <QuickAction
-              icon="cog"
-              label="Settings"
-              color={theme.colors.onSurfaceVariant}
-              width={actionWidth}
-              onPress={() => router.push('/(app)/settings')}
-            />
-          </View>
-        </DashboardSection>
-
-        <DashboardSection
-          title="Today's bookings"
-          subtitle={
-            hasTodayBookings
-              ? `${todayCount} scheduled for today`
-              : 'Nothing scheduled yet'
-          }
-          icon="calendar-clock"
-          contained={false}
-          trailing={
-            hasTodayBookings ? (
-              <View
+          <LinearGradient
+            colors={[...VENDOR_HEADER_BG]}
+            locations={[0, 0.55, 1]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={[
+              styles.homeHeader,
+              {
+                borderColor: withAlpha(colors.gold, '66'),
+              },
+            ]}
+            accessibilityRole="header"
+            accessibilityLabel={`${vendorTitle} home`}
+          >
+            {hasVendorLogo ? (
+              <BusinessLogo size={HOME_LOGO_SIZE} style={styles.homeHeaderLogo} />
+            ) : (
+              <BrandLogo
+                variant="icon"
+                size={HOME_LOGO_SIZE}
+                framed
+                style={styles.homeHeaderLogo}
+              />
+            )}
+            <View style={styles.homeHeaderText}>
+              <Text
+                variant="headlineSmall"
                 style={[
-                  styles.countBadge,
-                  { backgroundColor: theme.colors.primaryContainer },
+                  styles.homeHeaderTitle,
+                  {
+                    color: theme.colors.onSurface,
+                    fontFamily: vendorTitleFontFamily,
+                  },
                 ]}
+                numberOfLines={2}
+                ellipsizeMode="tail"
               >
-                <Text
-                  variant="labelMedium"
-                  style={{
-                    color: theme.colors.onPrimaryContainer,
-                    fontWeight: '600',
-                  }}
+                {vendorTitle}
+              </Text>
+              <Text
+                variant="labelMedium"
+                style={[
+                  styles.homeHeaderSubtitle,
+                  { color: theme.colors.secondary },
+                ]}
+                numberOfLines={1}
+              >
+                Bappaji.com
+              </Text>
+            </View>
+          </LinearGradient>
+
+          <DashboardSection
+            title="Quick actions"
+            subtitle="Jump into common tasks"
+            icon="flash-outline"
+            contained
+            dense
+          >
+            <View style={[styles.actionsGrid, { gap: gridGap }]}>
+              <QuickAction
+                icon="plus-circle"
+                label="New Booking"
+                color={theme.colors.primary}
+                width={actionWidth}
+                emphasized
+                onPress={() => router.push('/(app)/booking/new')}
+              />
+              <QuickAction
+                icon="magnify"
+                label="Search"
+                color={theme.colors.tertiary}
+                width={actionWidth}
+                onPress={() => router.push('/(app)/booking/search')}
+              />
+              <QuickAction
+                icon="calendar-month"
+                label={`${year} Bookings`}
+                color={theme.colors.primary}
+                width={actionWidth}
+                onPress={() => router.push('/(app)/booking/year')}
+              />
+              <QuickAction
+                icon="phone-outgoing"
+                label="Tele-calling"
+                color={theme.colors.tertiary}
+                width={actionWidth}
+                onPress={() => router.push('/(app)/telecalling' as Href)}
+              />
+              <QuickAction
+                icon="cog"
+                label="Settings"
+                color={theme.colors.onSurfaceVariant}
+                width={actionWidth}
+                onPress={() => router.push('/(app)/settings')}
+              />
+            </View>
+          </DashboardSection>
+
+          <DashboardSection
+            title="Today's bookings"
+            subtitle={
+              hasTodayBookings
+                ? `${todayCount} scheduled for today`
+                : 'Nothing scheduled yet'
+            }
+            icon="calendar-clock"
+            contained={false}
+            trailing={
+              hasTodayBookings ? (
+                <View
+                  style={[
+                    styles.countBadge,
+                    { backgroundColor: theme.colors.primaryContainer },
+                  ]}
                 >
-                  {todayCount}
-                </Text>
-              </View>
-            ) : null
-          }
-        >
-          {hasTodayBookings ? (
-            <Animated.View entering={FadeInDown.delay(200).springify()}>
-              {todayBookings!.map((booking: Booking, i: number) => (
-                <BookingCard
-                  key={booking.id}
-                  booking={booking}
-                  index={i}
-                  onPress={() => openBookingDetails(router, booking.id, 'dashboard')}
-                />
-              ))}
-            </Animated.View>
-          ) : (
-            <EmptyState
-              compact
-              icon="calendar-blank-outline"
-              message="No bookings for today. Create one from Quick actions."
-            />
-          )}
-        </DashboardSection>
-      </ScrollView>
+                  <Text
+                    variant="labelMedium"
+                    style={{
+                      color: theme.colors.onPrimaryContainer,
+                      fontWeight: '600',
+                    }}
+                  >
+                    {todayCount}
+                  </Text>
+                </View>
+              ) : null
+            }
+          >
+            {hasTodayBookings ? (
+              <Animated.View entering={FadeInDown.delay(200).springify()}>
+                {todayBookings!.map((booking: Booking, i: number) => (
+                  <BookingCard
+                    key={booking.id}
+                    booking={booking}
+                    index={i}
+                    onPress={() =>
+                      openBookingDetails(router, booking.id, 'dashboard')
+                    }
+                  />
+                ))}
+              </Animated.View>
+            ) : (
+              <EmptyState
+                compact
+                icon="calendar-blank-outline"
+                message="No bookings for today. Create one from Quick actions."
+              />
+            )}
+          </DashboardSection>
+        </ScrollView>
+      </View>
     </ScreenContainer>
   );
 }
 
 const styles = StyleSheet.create({
+  screenBody: {
+    flex: 1,
+  },
   scroll: {
     flex: 1,
   },
@@ -322,9 +356,11 @@ const styles = StyleSheet.create({
     marginHorizontal: spacing.md,
     marginTop: spacing.md,
     marginBottom: spacing.sm,
-    paddingVertical: spacing.sm,
-    paddingRight: spacing.xs,
-    backgroundColor: 'transparent',
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.md,
+    borderRadius: radius.lg,
+    borderWidth: StyleSheet.hairlineWidth,
+    overflow: 'hidden',
   },
   homeHeaderLogo: {
     flexShrink: 0,
@@ -342,11 +378,11 @@ const styles = StyleSheet.create({
     letterSpacing: -0.2,
   },
   homeHeaderSubtitle: {
-    fontWeight: '500',
+    fontWeight: '600',
     fontSize: 12,
     lineHeight: 16,
     letterSpacing: 0.2,
-    opacity: 0.85,
+    opacity: 0.9,
   },
   actionsGrid: {
     flexDirection: 'row',
