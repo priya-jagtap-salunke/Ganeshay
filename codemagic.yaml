@@ -16,7 +16,8 @@
 #    (Expo uses app.json name → "Ganeshay").
 
 workflows:
-  ios-unsigned-ipa:
+  # Keep workflow id "ios-ipa" so existing Codemagic triggers keep working.
+  ios-ipa:
     name: iOS unsigned IPA (testing)
     max_build_duration: 120
     instance_type: mac_mini_m2
