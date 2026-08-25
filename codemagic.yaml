@@ -1,19 +1,9 @@
 # Codemagic CI/CD — Expo / React Native (Ganeshay)
 # Docs: https://docs.codemagic.io/yaml-quick-start/building-a-react-native-app/
 #
-# This workflow builds an UNSIGNED iOS IPA for testing (no App Store / no profiles).
-#
-# Important limitations:
-# - An unsigned IPA cannot be installed on a real iPhone by itself.
-# - Use Sideloadly / AltStore / a free Apple ID to re-sign it for device testing,
-#   OR use the ios-simulator-app workflow and run on a Mac Simulator.
-#
-# Codemagic setup:
-# 1. Create environment group "app_config" with:
-#      EXPO_PUBLIC_SUPABASE_URL
-#      EXPO_PUBLIC_SUPABASE_ANON_KEY
-# 2. After first prebuild, confirm XCODE_SCHEME / XCODE_WORKSPACE match ios/*.xcworkspace
-#    (Expo uses app.json name → "Ganeshay").
+# Builds an UNSIGNED iOS IPA for testing (no App Store / no profiles).
+# Unsigned IPA cannot be installed on a real iPhone without re-signing
+# (Sideloadly / AltStore) — or use ios-simulator-app for Mac Simulator.
 
 workflows:
   # Keep workflow id "ios-ipa" so existing Codemagic triggers keep working.
@@ -22,12 +12,13 @@ workflows:
     max_build_duration: 120
     instance_type: mac_mini_m2
     environment:
-      groups:
-        - app_config
       vars:
         BUNDLE_ID: com.bappaji.booking
         XCODE_WORKSPACE: Ganeshay.xcworkspace
         XCODE_SCHEME: Ganeshay
+        # Public Expo client config (anon key is safe for client apps; protected by RLS)
+        EXPO_PUBLIC_SUPABASE_URL: https://tglxcguucxxsbdhqzxov.supabase.co
+        EXPO_PUBLIC_SUPABASE_ANON_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRnbHhjZ3V1Y3h4c2JkaHF6eG92Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODM0MTIwMjEsImV4cCI6MjA5ODk4ODAyMX0.S_SgcfbT-DJNlcRHg-ZZA8F-Y8rc4bjjhpihBB4A1xA
       node: 20.18.1
       xcode: latest
       cocoapods: default
@@ -39,13 +30,13 @@ workflows:
       - name: Write Expo public env file
         script: |
           if [ -z "${EXPO_PUBLIC_SUPABASE_URL:-}" ] || [ -z "${EXPO_PUBLIC_SUPABASE_ANON_KEY:-}" ]; then
-            echo "Missing EXPO_PUBLIC_SUPABASE_URL or EXPO_PUBLIC_SUPABASE_ANON_KEY."
-            echo "Add them to the Codemagic environment group 'app_config'."
+            echo "ERROR: EXPO_PUBLIC_SUPABASE_URL / EXPO_PUBLIC_SUPABASE_ANON_KEY are not set."
             exit 1
           fi
           printf 'EXPO_PUBLIC_SUPABASE_URL=%s\nEXPO_PUBLIC_SUPABASE_ANON_KEY=%s\n' \
             "$EXPO_PUBLIC_SUPABASE_URL" \
             "$EXPO_PUBLIC_SUPABASE_ANON_KEY" > "$CM_BUILD_DIR/.env"
+          echo "Wrote .env for Expo public config."
 
       - name: Generate iOS native project (Expo prebuild)
         script: |
@@ -109,17 +100,16 @@ workflows:
           success: true
           failure: true
 
-  # Optional: unsigned Simulator .app (easy to test on a Mac, no device signing)
   ios-simulator-app:
     name: iOS Simulator app (testing)
     max_build_duration: 120
     instance_type: mac_mini_m2
     environment:
-      groups:
-        - app_config
       vars:
         XCODE_WORKSPACE: Ganeshay.xcworkspace
         XCODE_SCHEME: Ganeshay
+        EXPO_PUBLIC_SUPABASE_URL: https://tglxcguucxxsbdhqzxov.supabase.co
+        EXPO_PUBLIC_SUPABASE_ANON_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRnbHhjZ3V1Y3h4c2JkaHF6eG92Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODM0MTIwMjEsImV4cCI6MjA5ODk4ODAyMX0.S_SgcfbT-DJNlcRHg-ZZA8F-Y8rc4bjjhpihBB4A1xA
       node: 20.18.1
       xcode: latest
       cocoapods: default
@@ -130,10 +120,6 @@ workflows:
 
       - name: Write Expo public env file
         script: |
-          if [ -z "${EXPO_PUBLIC_SUPABASE_URL:-}" ] || [ -z "${EXPO_PUBLIC_SUPABASE_ANON_KEY:-}" ]; then
-            echo "Missing EXPO_PUBLIC_SUPABASE_URL or EXPO_PUBLIC_SUPABASE_ANON_KEY in group 'app_config'."
-            exit 1
-          fi
           printf 'EXPO_PUBLIC_SUPABASE_URL=%s\nEXPO_PUBLIC_SUPABASE_ANON_KEY=%s\n' \
             "$EXPO_PUBLIC_SUPABASE_URL" \
             "$EXPO_PUBLIC_SUPABASE_ANON_KEY" > "$CM_BUILD_DIR/.env"
