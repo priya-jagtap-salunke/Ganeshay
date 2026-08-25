@@ -16,3 +16,12 @@ web-build/
 
 expo-env.d.ts
 # @end expo-cli
+# Android local/build artifacts (native project source under android/ is tracked)
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+*.hprof
+
+# Supabase CLI temp
+supabase/.temp/

@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "Bappaji Booking",
+    "name": "Ganeshay",
     "slug": "bappaji",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -14,34 +14,64 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.bappaji.booking"
+      "bundleIdentifier": "com.bappaji.booking",
+      "infoPlist": {
+        "CFBundleDisplayName": "Ganeshay",
+        "NSCameraUsageDescription": "Allow Ganeshay to use the camera to photograph the selected murti.",
+        "NSPhotoLibraryUsageDescription": "Allow Ganeshay to access your photos to capture murti photos and set your business logo.",
+        "NSPhotoLibraryAddUsageDescription": "Allow Ganeshay to save murti photos when needed.",
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#B22234"
+        "backgroundColor": "#FFFAF5"
       },
       "package": "com.bappaji.booking",
       "versionCode": 1,
       "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.READ_MEDIA_IMAGES",
+        "android.permission.READ_EXTERNAL_STORAGE",
         "android.permission.READ_CALL_LOG",
         "android.permission.READ_PHONE_STATE",
-        "android.permission.RECORD_AUDIO"
+        "android.permission.RECORD_AUDIO",
+        "android.permission.READ_CONTACTS",
+        "android.permission.WRITE_CONTACTS"
+      ],
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "category": ["BROWSABLE", "DEFAULT"],
+          "data": [
+            {
+              "scheme": "bappaji"
+            }
+          ]
+        }
       ]
     },
     "web": {
       "bundler": "metro",
       "output": "single",
-      "favicon": "./assets/icon.png"
+      "favicon": "./assets/favicon.png"
     },
     "plugins": [
       "expo-router",
       "expo-secure-store",
       "expo-document-picker",
       [
+        "expo-contacts",
+        {
+          "contactsPermission": "Allow Ganeshay to read and save tele-calling contacts to your phone address book."
+        }
+      ],
+      [
         "expo-image-picker",
         {
-          "photosPermission": "Allow Bappaji Booking to access your photos to set your business logo."
+          "photosPermission": "Allow Ganeshay to access your photos to capture murti photos and set your business logo.",
+          "cameraPermission": "Allow Ganeshay to use the camera to photograph the selected murti."
         }
       ]
     ],

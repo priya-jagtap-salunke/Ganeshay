@@ -63,7 +63,7 @@ export function MurtiesPdfPicker({
   const handleRemovePdf = () => {
     Alert.alert(
       'Remove PDF',
-      'Remove the Ganesha murties catalog PDF from enquiry messages?',
+      'Remove the Ganesha murties catalog PDF from Tele-calling messages?',
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -86,8 +86,8 @@ export function MurtiesPdfPicker({
     <View style={styles.container}>
       <Text style={styles.label}>Ganesha Murties Catalog (PDF)</Text>
       <Text style={styles.hint}>
-        This PDF is attached with your enquiry WhatsApp message when you tap Send
-        Details.
+        This PDF is attached with your Tele-calling WhatsApp message when you tap
+        Send Details.
       </Text>
 
       <View style={styles.previewBox}>

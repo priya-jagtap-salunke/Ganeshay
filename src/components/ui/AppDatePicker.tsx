@@ -6,16 +6,14 @@ import {
   View,
   ViewStyle,
 } from 'react-native';
-import { Text, HelperText } from 'react-native-paper';
+import { Text, HelperText, useTheme } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import DateTimePicker, {
   DateTimePickerEvent,
 } from '@react-native-community/datetimepicker';
 import { format, parseISO, isValid } from 'date-fns';
-import { colors } from '@/theme/colors';
-import { shadows } from '@/theme/shadows';
 import { formatDisplayDate, getTodayString } from '@/utils/dates';
-import { radius } from '@/theme/spacing';
+import { radius, touchTarget } from '@/theme/spacing';
 
 interface AppDatePickerProps {
   label: string;
@@ -46,6 +44,7 @@ export function AppDatePicker({
   optional = false,
   style,
 }: AppDatePickerProps) {
+  const theme = useTheme();
   const [showPicker, setShowPicker] = useState(false);
   const displayValue = value
     ? formatDisplayDate(value)
@@ -65,8 +64,22 @@ export function AppDatePicker({
   if (Platform.OS === 'web') {
     return (
       <View style={[styles.container, style]}>
-        <Text style={styles.label}>{label}</Text>
-        <View style={[styles.field, shadows.sm as ViewStyle, error ? styles.fieldError : null]}>
+        <Text
+          variant="bodySmall"
+          style={{ color: theme.colors.onSurfaceVariant, marginBottom: 4, marginLeft: 4 }}
+        >
+          {label}
+        </Text>
+        <View
+          style={[
+            styles.field,
+            {
+              backgroundColor: theme.colors.surface,
+              borderColor: error ? theme.colors.error : theme.colors.outline,
+              borderRadius: radius.xs,
+            },
+          ]}
+        >
           <input
             type="date"
             value={value ?? ''}
@@ -76,29 +89,58 @@ export function AppDatePicker({
               width: '100%',
               border: 'none',
               background: 'transparent',
-              fontSize: 18,
+              fontSize: 16,
               padding: 4,
               fontFamily: 'System, sans-serif',
-              color: colors.textPrimary,
+              color: theme.colors.onSurface,
             }}
           />
         </View>
-        {error ? <HelperText type="error" visible>{error}</HelperText> : null}
+        {error ? (
+          <HelperText type="error" visible>
+            {error}
+          </HelperText>
+        ) : null}
       </View>
     );
   }
 
   return (
     <View style={[styles.container, style]}>
-      <Text style={styles.label}>{label}</Text>
+      <Text
+        variant="bodySmall"
+        style={{ color: theme.colors.onSurfaceVariant, marginBottom: 4, marginLeft: 4 }}
+      >
+        {label}
+      </Text>
       <Pressable
         onPress={() => setShowPicker(true)}
-        style={[styles.field, shadows.sm as ViewStyle, error ? styles.fieldError : null]}
+        accessibilityRole="button"
+        accessibilityLabel={`${label}, ${displayValue}`}
+        android_ripple={{ color: theme.colors.primary + '18' }}
+        style={[
+          styles.field,
+          {
+            backgroundColor: theme.colors.surface,
+            borderColor: error ? theme.colors.error : theme.colors.outline,
+            borderRadius: radius.xs,
+          },
+        ]}
       >
-        <Text style={styles.value}>{displayValue}</Text>
-        <MaterialCommunityIcons name="calendar-month" size={24} color={colors.goldDark} />
+        <Text variant="bodyLarge" style={{ color: theme.colors.onSurface, flex: 1 }}>
+          {displayValue}
+        </Text>
+        <MaterialCommunityIcons
+          name="calendar-month"
+          size={24}
+          color={theme.colors.onSurfaceVariant}
+        />
       </Pressable>
-      {error ? <HelperText type="error" visible>{error}</HelperText> : null}
+      {error ? (
+        <HelperText type="error" visible>
+          {error}
+        </HelperText>
+      ) : null}
 
       {showPicker && (
         <DateTimePicker
@@ -112,7 +154,9 @@ export function AppDatePicker({
 
       {Platform.OS === 'ios' && showPicker ? (
         <Pressable onPress={() => setShowPicker(false)} style={styles.iosDone}>
-          <Text style={styles.iosDoneText}>Done</Text>
+          <Text variant="labelLarge" style={{ color: theme.colors.primary }}>
+            Done
+          </Text>
         </Pressable>
       ) : null}
     </View>
@@ -121,43 +165,23 @@ export function AppDatePicker({
 
 const styles = StyleSheet.create({
   container: {
-    marginVertical: 6,
-  },
-  label: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: colors.textSecondary,
-    marginBottom: 4,
-    marginLeft: 4,
+    marginVertical: 4,
   },
   field: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: colors.white,
-    borderWidth: 1.5,
-    borderColor: colors.grayLight,
-    borderRadius: radius.md,
+    borderWidth: 1,
     paddingHorizontal: 16,
-    paddingVertical: 16,
-    minHeight: 56,
-  },
-  fieldError: {
-    borderColor: colors.error,
-  },
-  value: {
-    fontSize: 18,
-    color: colors.textPrimary,
-    fontWeight: '500',
+    paddingVertical: 12,
+    minHeight: touchTarget.comfortable,
+    overflow: 'hidden',
   },
   iosDone: {
     alignSelf: 'flex-end',
     paddingVertical: 8,
     paddingHorizontal: 16,
-  },
-  iosDoneText: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: colors.royalRed,
+    minHeight: touchTarget.min,
+    justifyContent: 'center',
   },
 });

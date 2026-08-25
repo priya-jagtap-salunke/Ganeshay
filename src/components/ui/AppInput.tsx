@@ -1,24 +1,30 @@
-import { StyleSheet, ViewStyle } from 'react-native';
-import { TextInput, TextInputProps, HelperText } from 'react-native-paper';
-import { colors } from '@/theme/colors';
-import { shadows } from '@/theme/shadows';
-import { radius } from '@/theme/spacing';
+import { StyleSheet, TextStyle } from 'react-native';
+import { TextInput, TextInputProps, HelperText, useTheme } from 'react-native-paper';
+import { radius, touchTarget } from '@/theme/spacing';
 
-interface AppInputProps extends TextInputProps {
+type PaperInputProps = Omit<TextInputProps, 'error'>;
+
+interface AppInputProps extends PaperInputProps {
   error?: string;
 }
 
 export function AppInput({ error, style, ...props }: AppInputProps) {
+  const theme = useTheme();
+
   return (
     <>
       <TextInput
         mode="outlined"
-        outlineColor={colors.grayLight}
-        activeOutlineColor={colors.goldDark}
+        outlineColor={theme.colors.outline}
+        activeOutlineColor={theme.colors.primary}
         outlineStyle={styles.outline}
-        style={[styles.input, shadows.sm as ViewStyle, style as ViewStyle]}
+        style={[
+          styles.input,
+          { backgroundColor: theme.colors.surface },
+          style as TextStyle,
+        ]}
         contentStyle={styles.content}
-        theme={{ colors: { onSurfaceVariant: colors.textSecondary } }}
+        error={Boolean(error)}
         {...props}
       />
       {error ? (
@@ -32,20 +38,18 @@ export function AppInput({ error, style, ...props }: AppInputProps) {
 
 const styles = StyleSheet.create({
   input: {
-    marginVertical: 6,
-    backgroundColor: colors.white,
-    fontSize: 18,
-    borderRadius: radius.md,
+    marginVertical: 4,
+    fontSize: 16,
   },
   outline: {
-    borderRadius: radius.md,
-    borderWidth: 1.5,
+    borderRadius: radius.xs,
   },
   content: {
-    fontSize: 18,
-    paddingVertical: 10,
+    fontSize: 16,
+    minHeight: touchTarget.min - 8,
   },
   error: {
-    fontWeight: '500',
+    marginTop: -2,
+    marginBottom: 4,
   },
 });

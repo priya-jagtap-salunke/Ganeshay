@@ -4,12 +4,13 @@ import {
   StyleSheet,
   View,
   ViewStyle,
+  Platform,
 } from 'react-native';
-import { Text } from 'react-native-paper';
+import { Text, useTheme } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { colors } from '@/theme/colors';
-import { shadows } from '@/theme/shadows';
-import { radius, spacing } from '@/theme/spacing';
+import { elevation } from '@/theme/shadows';
+import { radius, spacing, touchTarget } from '@/theme/spacing';
 
 interface BookingActionsProps {
   onViewReceipt: () => void;
@@ -35,38 +36,6 @@ interface ActionTileProps {
   disabled?: boolean;
 }
 
-const variantStyles: Record<
-  ActionVariant,
-  { backgroundColor: string; foregroundColor: string; borderColor?: string }
-> = {
-  primary: {
-    backgroundColor: colors.royalRed,
-    foregroundColor: colors.white,
-  },
-  secondary: {
-    backgroundColor: colors.gold,
-    foregroundColor: colors.textPrimary,
-  },
-  saffron: {
-    backgroundColor: colors.deepSaffron,
-    foregroundColor: colors.white,
-  },
-  outline: {
-    backgroundColor: colors.white,
-    foregroundColor: colors.royalRed,
-    borderColor: colors.gold,
-  },
-  success: {
-    backgroundColor: colors.success,
-    foregroundColor: colors.white,
-  },
-  danger: {
-    backgroundColor: colors.white,
-    foregroundColor: colors.error,
-    borderColor: colors.error,
-  },
-};
-
 function ActionTile({
   icon,
   label,
@@ -75,34 +44,74 @@ function ActionTile({
   loading,
   disabled,
 }: ActionTileProps) {
-  const palette = variantStyles[variant];
+  const theme = useTheme();
   const isDisabled = disabled || loading || !onPress;
+
+  const palette: Record<
+    ActionVariant,
+    { backgroundColor: string; foregroundColor: string; borderColor?: string }
+  > = {
+    primary: {
+      backgroundColor: theme.colors.primary,
+      foregroundColor: theme.colors.onPrimary,
+    },
+    secondary: {
+      backgroundColor: theme.colors.secondaryContainer,
+      foregroundColor: theme.colors.onSecondaryContainer,
+    },
+    saffron: {
+      backgroundColor: theme.colors.tertiary,
+      foregroundColor: theme.colors.onTertiary,
+    },
+    outline: {
+      backgroundColor: theme.colors.surface,
+      foregroundColor: theme.colors.primary,
+      borderColor: theme.colors.outline,
+    },
+    success: {
+      backgroundColor: colors.success,
+      foregroundColor: colors.white,
+    },
+    danger: {
+      backgroundColor: theme.colors.errorContainer,
+      foregroundColor: theme.colors.error,
+      borderColor: theme.colors.error,
+    },
+  };
+
+  const colorsForVariant = palette[variant];
 
   return (
     <Pressable
       onPress={onPress}
       disabled={isDisabled}
+      android_ripple={{ color: colorsForVariant.foregroundColor + '22' }}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      accessibilityState={{ disabled: isDisabled }}
       style={({ pressed }) => [
         styles.tile,
         {
-          backgroundColor: palette.backgroundColor,
-          borderColor: palette.borderColor ?? palette.backgroundColor,
+          backgroundColor: colorsForVariant.backgroundColor,
+          borderColor: colorsForVariant.borderColor ?? colorsForVariant.backgroundColor,
+          borderRadius: radius.md,
         },
         isDisabled && styles.tileDisabled,
-        pressed && !isDisabled && styles.tilePressed,
+        pressed && !isDisabled && Platform.OS !== 'android' && styles.tilePressed,
       ]}
     >
       {loading ? (
-        <ActivityIndicator size="small" color={palette.foregroundColor} />
+        <ActivityIndicator size="small" color={colorsForVariant.foregroundColor} />
       ) : (
         <MaterialCommunityIcons
           name={icon}
           size={22}
-          color={palette.foregroundColor}
+          color={colorsForVariant.foregroundColor}
         />
       )}
       <Text
-        style={[styles.tileLabel, { color: palette.foregroundColor }]}
+        variant="labelSmall"
+        style={[styles.tileLabel, { color: colorsForVariant.foregroundColor }]}
         numberOfLines={2}
       >
         {label}
@@ -127,11 +136,26 @@ export function BookingActions({
   activeAction,
   markDeliveredLoading,
 }: BookingActionsProps) {
+  const theme = useTheme();
   const actionsDisabled = isBusy || markDeliveredLoading;
 
   return (
-    <View style={[styles.container, shadows.sm as ViewStyle]}>
-      <Text style={styles.title}>Booking Actions</Text>
+    <View
+      style={[
+        styles.container,
+        elevation.level1 as ViewStyle,
+        {
+          backgroundColor: theme.colors.elevation?.level1 ?? theme.colors.surface,
+          borderRadius: radius.lg,
+        },
+      ]}
+    >
+      <Text
+        variant="titleMedium"
+        style={{ color: theme.colors.onSurface, marginBottom: spacing.sm }}
+      >
+        Booking Actions
+      </Text>
 
       <ActionRow>
         <ActionTile
@@ -190,46 +214,33 @@ export function BookingActions({
 
 const styles = StyleSheet.create({
   container: {
-    backgroundColor: colors.white,
-    borderRadius: radius.lg,
     padding: spacing.md,
     marginTop: spacing.md,
-    borderWidth: 1,
-    borderColor: colors.goldLight,
-  },
-  title: {
-    fontSize: 18,
-    fontWeight: '800',
-    color: colors.royalRed,
-    marginBottom: spacing.sm,
-    letterSpacing: 0.3,
   },
   row: {
     flexDirection: 'row',
-    gap: spacing.xs,
-    marginBottom: spacing.xs,
+    gap: spacing.sm,
+    marginBottom: spacing.sm,
   },
   tile: {
     flex: 1,
-    minHeight: 76,
-    borderRadius: radius.md,
-    borderWidth: 2,
+    minHeight: touchTarget.comfortable + 20,
+    borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: spacing.xs,
     paddingVertical: spacing.sm,
     gap: spacing.xs,
+    overflow: 'hidden',
   },
   tilePressed: {
     opacity: 0.88,
   },
   tileDisabled: {
-    opacity: 0.55,
+    opacity: 0.45,
   },
   tileLabel: {
-    fontSize: 11,
-    fontWeight: '700',
     textAlign: 'center',
-    lineHeight: 14,
+    fontWeight: '600',
   },
 });

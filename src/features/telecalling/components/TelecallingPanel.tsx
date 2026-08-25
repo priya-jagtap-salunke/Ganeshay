@@ -37,7 +37,9 @@ import { TelecallingContactRow } from './TelecallingContactRow';
 import { TelecallingFilterBar } from './TelecallingFilterBar';
 import { CallOutcomeModal } from './CallOutcomeModal';
 import { DeviceContactsPickerModal } from './DeviceContactsPickerModal';
+import { CallLogPickerModal } from './CallLogPickerModal';
 import {
+  CreateTelecallingContactInput,
   TelecallingCallOutcome,
   TelecallingContact,
   TelecallingFilterId,
@@ -46,7 +48,8 @@ import {
   normalizeTelecallingStatus,
 } from '@/types/telecalling';
 import { mobileMatchesQuery } from '../utils/phoneNormalize';
-import { shareStallDetailsOnWhatsApp } from '@/features/enquiries/services/enquiryWhatsAppService';
+import { shareStallDetailsOnWhatsApp } from '../services/stallDetailsWhatsAppService';
+import { isCallLogSupported } from '../services/callLogService';
 import { useSettingsStore } from '@/features/settings/store/settingsStore';
 import { getErrorMessage } from '@/utils/errors';
 import { colors } from '@/theme/colors';
@@ -81,6 +84,7 @@ export function TelecallingPanel() {
     useState<TelecallingContact | null>(null);
   const [outcomeVisible, setOutcomeVisible] = useState(false);
   const [phonePickerVisible, setPhonePickerVisible] = useState(false);
+  const [callLogPickerVisible, setCallLogPickerVisible] = useState(false);
 
   const pendingOutcomeIdRef = useRef<string | null>(null);
   const appStateRef = useRef<AppStateStatus>(AppState.currentState);
@@ -294,11 +298,22 @@ export function TelecallingPanel() {
     setPhonePickerVisible(true);
   };
 
-  const handlePhonePickerConfirm = async (
-    selected: DeviceContactOption[]
+  const handleImportFromCallLog = () => {
+    if (!isCallLogSupported()) {
+      Alert.alert(
+        'Android only',
+        'Importing from recent call logs is available on the Android app only.'
+      );
+      return;
+    }
+    setCallLogPickerVisible(true);
+  };
+
+  const importContactBatch = async (
+    contacts: CreateTelecallingContactInput[],
+    sourceLabel: string
   ) => {
-    setPhonePickerVisible(false);
-    if (!selected.length) {
+    if (!contacts.length) {
       Alert.alert(
         'No contacts selected',
         'Select at least one contact with a valid 10-digit Indian mobile.'
@@ -308,14 +323,13 @@ export function TelecallingPanel() {
 
     setImporting(true);
     try {
-      const contacts = deviceOptionsToImportInputs(selected);
       const { inserted, skippedExisting } =
         await importMutation.mutateAsync(contacts);
 
       setFilter('all');
       Alert.alert(
         'Import complete',
-        `Added ${inserted.length} from phone.` +
+        `Added ${inserted.length} from ${sourceLabel}.` +
           (skippedExisting
             ? ` Skipped ${skippedExisting} already in tele-calling.`
             : '')
@@ -325,6 +339,20 @@ export function TelecallingPanel() {
     } finally {
       setImporting(false);
     }
+  };
+
+  const handlePhonePickerConfirm = async (
+    selected: DeviceContactOption[]
+  ) => {
+    setPhonePickerVisible(false);
+    await importContactBatch(deviceOptionsToImportInputs(selected), 'phone');
+  };
+
+  const handleCallLogConfirm = async (
+    contacts: CreateTelecallingContactInput[]
+  ) => {
+    setCallLogPickerVisible(false);
+    await importContactBatch(contacts, 'call log');
   };
 
   const handleDelete = (contact: TelecallingContact) => {
@@ -354,7 +382,7 @@ export function TelecallingPanel() {
 
     Alert.alert(
       'Start fresh tele-calling?',
-      `Delete all ${contactCount} contacts from tele-calling?\n\nCall history for these contacts will also be removed. You can import again from Excel or phone after this.\n\nThis cannot be undone.`,
+      `Delete all ${contactCount} contacts from tele-calling?\n\nCall history for these contacts will also be removed. You can import again from Excel, phone, or call log after this.\n\nThis cannot be undone.`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -414,7 +442,7 @@ export function TelecallingPanel() {
             contentStyle={styles.importBtnContent}
             labelStyle={styles.importBtnLabel}
           >
-            Upload Excel
+            Excel
           </AppButton>
           <AppButton
             icon="account-plus-outline"
@@ -426,7 +454,19 @@ export function TelecallingPanel() {
             contentStyle={styles.importBtnContent}
             labelStyle={styles.importBtnLabel}
           >
-            From phone
+            Phone
+          </AppButton>
+          <AppButton
+            icon="phone-log"
+            variant="tonal"
+            onPress={handleImportFromCallLog}
+            loading={busy}
+            compact
+            style={styles.importBtn}
+            contentStyle={styles.importBtnContent}
+            labelStyle={styles.importBtnLabel}
+          >
+            Call log
           </AppButton>
         </View>
         {contactCount > 0 ? (
@@ -498,7 +538,7 @@ export function TelecallingPanel() {
               icon="phone-outgoing"
               message={
                 (contacts?.length ?? 0) === 0
-                  ? 'No contacts yet. Upload Excel or pick from phone.'
+                  ? 'No contacts yet. Import from Excel, phone, or call log.'
                   : searchQuery.trim()
                     ? 'No contacts found'
                     : 'Nothing in this filter.'
@@ -523,6 +563,13 @@ export function TelecallingPanel() {
         visible={phonePickerVisible}
         onDismiss={() => setPhonePickerVisible(false)}
         onConfirm={handlePhonePickerConfirm}
+      />
+
+      <CallLogPickerModal
+        visible={callLogPickerVisible}
+        onDismiss={() => setCallLogPickerVisible(false)}
+        onConfirm={handleCallLogConfirm}
+        isSaving={busy}
       />
     </View>
   );

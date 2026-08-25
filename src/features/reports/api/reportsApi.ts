@@ -1,5 +1,7 @@
 import { supabase } from '@/lib/supabase';
 import { Booking } from '@/types/booking';
+import { Expense } from '@/types/expense';
+import { sumExpenses } from './expensesApi';
 
 export interface YearlySummary {
   year: number;
@@ -8,6 +10,8 @@ export interface YearlySummary {
   advanceCollected: number;
   pendingAmount: number;
   deliveredCount: number;
+  totalExpenses: number;
+  profit: number;
 }
 
 export interface CustomerRecord {
@@ -41,29 +45,28 @@ export async function fetchYearBookings(year: number): Promise<Booking[]> {
 
 export function buildYearlySummary(
   year: number,
-  bookings: Booking[]
+  bookings: Booking[],
+  expenses: Expense[] = []
 ): YearlySummary {
+  const totalSales = bookings.reduce((sum, b) => sum + Number(b.price), 0);
+  const totalExpenses = sumExpenses(expenses);
+
   return {
     year,
     totalBookings: bookings.length,
-    totalSales: bookings.reduce((sum, b) => sum + Number(b.price), 0),
+    totalSales,
     advanceCollected: bookings.reduce((sum, b) => sum + Number(b.advance), 0),
     pendingAmount: bookings.reduce((sum, b) => sum + Number(b.pending), 0),
     deliveredCount: bookings.filter((b) => b.status === 'Delivered').length,
+    totalExpenses,
+    profit: totalSales - totalExpenses,
   };
 }
 
-export async function fetchCustomerList(): Promise<CustomerRecord[]> {
-  const { data, error } = await supabase
-    .from('bookings')
-    .select('customer_name, mobile, price, booking_date, booking_number')
-    .order('booking_date', { ascending: false });
-
-  if (error) throw error;
-
+export function buildCustomerListFromBookings(bookings: Booking[]): CustomerRecord[] {
   const map = new Map<string, CustomerRecord>();
 
-  for (const row of data ?? []) {
+  for (const row of bookings) {
     const key = row.mobile.trim();
     const existing = map.get(key);
 
@@ -91,4 +94,14 @@ export async function fetchCustomerList(): Promise<CustomerRecord[]> {
   return Array.from(map.values()).sort((a, b) =>
     a.customerName.localeCompare(b.customerName)
   );
+}
+
+export async function fetchCustomerList(): Promise<CustomerRecord[]> {
+  const { data, error } = await supabase
+    .from('bookings')
+    .select('customer_name, mobile, price, booking_date, booking_number')
+    .order('booking_date', { ascending: false });
+
+  if (error) throw error;
+  return buildCustomerListFromBookings((data ?? []) as Booking[]);
 }

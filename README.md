@@ -1,4 +1,4 @@
-# Bappaji Booking
+# Ganeshay
 
 Cross-platform booking app for Ganapati Murti stall. Replaces paper receipt books with digital bookings, PDF receipts, and payment tracking.
 
@@ -55,12 +55,29 @@ EXPO_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
 1. Open your Supabase project dashboard
 2. Go to **SQL Editor**
 3. Paste and run the contents of `supabase/schema.sql`
+4. Paste and run the contents of `supabase/saas-migration.sql` (multi-vendor SaaS tables + RLS)
 
-### 4. Create admin user
+### 4. Enable admin-managed vendor logins
 
-1. Supabase Dashboard → **Authentication** → **Users**
-2. Click **Add user** → create email + password
-3. Use these credentials to log in to the app
+1. Run `supabase/admin-migration.sql` in the SQL editor
+2. Create your **platform admin** user in Supabase → Authentication → Users
+3. Link admin user (replace email):
+
+```sql
+INSERT INTO super_admins (user_id)
+SELECT id FROM auth.users WHERE email = 'admin@yourcompany.com'
+ON CONFLICT DO NOTHING;
+```
+
+4. Deploy the Edge Function (creates vendor login + password):
+
+```bash
+supabase functions deploy admin-create-vendor
+```
+
+5. Log in as admin → **Settings → Open Admin Panel** → create vendor accounts and share login email + password with stall owners
+
+Vendors **do not self-register**. They use **Vendor Login** with credentials you provide.
 
 ### 5. Run the app
 
@@ -77,7 +94,8 @@ npm run web       # Web browser
 ## App Flow
 
 ```
-Splash → Login → Dashboard → New Booking → Save → PDF Receipt → Share
+Splash → Vendor Login (admin-provided email + password) → Stall Dashboard
+Admin → Login → Admin Panel → Create vendor logins
                                     ↓
                               Search Booking → Details → Mark Delivered
 ```

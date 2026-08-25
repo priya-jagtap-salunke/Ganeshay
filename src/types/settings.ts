@@ -2,16 +2,18 @@ export interface BusinessSettings {
   businessName: string;
   phone: string;
   address: string;
-  /** Google Maps link or pinpoint URL shared in enquiry WhatsApp messages. */
+  /** Google Maps link or pinpoint URL shared in Tele-calling WhatsApp messages. */
   mapLink: string;
-  /** Short stall description for enquiry messages. */
+  /** Short stall description for Tele-calling messages. */
   stallDescription: string;
-  /** Pre-drafted WhatsApp message for enquiries. Supports placeholders. */
+  /** Pre-drafted WhatsApp message for Tele-calling Send Details. Supports placeholders. */
   enquiryMessage: string;
-  /** Persisted PDF catalog of Ganesha murties sent with enquiry WhatsApp messages. */
+  /** Persisted PDF catalog of Ganesha murties sent with Tele-calling WhatsApp messages. */
   murtiesPdfUri: string | null;
   murtiesPdfName: string | null;
   businessLogo: string | null;
+  /** Local preference mirror; server source of truth is vendors.ai_enabled. */
+  aiEnabled?: boolean;
 }
 
 /** Shared business info for PDF receipts, invoices, and reports. */

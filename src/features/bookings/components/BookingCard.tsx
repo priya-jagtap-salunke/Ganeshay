@@ -1,54 +1,104 @@
-import { StyleSheet, View, ViewStyle, Pressable } from 'react-native';
-import { Text, Chip } from 'react-native-paper';
+import { StyleSheet, View, ViewStyle, Pressable, Platform } from 'react-native';
+import { Text, Chip, useTheme } from 'react-native-paper';
 import Animated, { FadeInRight } from 'react-native-reanimated';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Booking } from '@/types/booking';
 import { colors } from '@/theme/colors';
-import { shadows } from '@/theme/shadows';
+import { elevation } from '@/theme/shadows';
 import { formatCurrency } from '@/utils/currency';
-import { radius, spacing } from '@/theme/spacing';
+import { formatDisplayDate } from '@/utils/dates';
+import { radius, spacing, touchTarget } from '@/theme/spacing';
 
 interface BookingCardProps {
   booking: Booking;
   onPress: () => void;
   index?: number;
+  showDate?: boolean;
 }
 
-export function BookingCard({ booking, onPress, index = 0 }: BookingCardProps) {
+export function BookingCard({
+  booking,
+  onPress,
+  index = 0,
+  showDate = false,
+}: BookingCardProps) {
+  const theme = useTheme();
   const isDelivered = booking.status === 'Delivered';
-  const statusColor = isDelivered ? colors.success : colors.deepSaffron;
+  const statusColor = isDelivered ? colors.success : theme.colors.tertiary;
+  const statusBg = isDelivered ? colors.successContainer : colors.pendingContainer;
 
   return (
-    <Animated.View entering={FadeInRight.delay(index * 60).springify()}>
+    <Animated.View entering={FadeInRight.delay(index * 40).springify()}>
       <Pressable
         onPress={onPress}
+        android_ripple={{ color: theme.colors.primary + '18' }}
+        accessibilityRole="button"
+        accessibilityLabel={`Booking ${booking.booking_number}, ${booking.customer_name}`}
         style={({ pressed }) => [
           styles.card,
-          shadows.md as ViewStyle,
-          pressed && styles.cardPressed,
+          elevation.level1 as ViewStyle,
+          {
+            backgroundColor: theme.colors.elevation?.level1 ?? theme.colors.surface,
+            borderRadius: radius.lg,
+          },
+          pressed && Platform.OS !== 'android' && styles.cardPressed,
         ]}
       >
         <View style={styles.topRow}>
-          <View style={styles.numberBadge}>
-            <Text style={styles.bookingNumber}>{booking.booking_number}</Text>
+          <View
+            style={[
+              styles.numberBadge,
+              { backgroundColor: theme.colors.primaryContainer },
+            ]}
+          >
+            <Text
+              variant="labelLarge"
+              style={{ color: theme.colors.onPrimaryContainer, fontWeight: '600' }}
+            >
+              {booking.booking_number}
+            </Text>
           </View>
           <Chip
-            style={[styles.chip, { backgroundColor: statusColor }]}
-            textStyle={styles.chipText}
+            compact
+            style={[styles.chip, { backgroundColor: statusBg }]}
+            textStyle={[styles.chipText, { color: statusColor }]}
           >
             {booking.status}
           </Chip>
         </View>
-        <Text style={styles.customerName}>{booking.customer_name}</Text>
-        <Text style={styles.murtiName}>{booking.murti_name}</Text>
-        <View style={styles.footer}>
+        <Text variant="titleMedium" style={{ color: theme.colors.onSurface }}>
+          {booking.customer_name}
+        </Text>
+        {showDate ? (
+          <Text
+            variant="labelMedium"
+            style={{ color: theme.colors.tertiary, marginTop: 2 }}
+          >
+            {formatDisplayDate(booking.booking_date)}
+          </Text>
+        ) : null}
+        <Text
+          variant="bodyMedium"
+          style={{ color: theme.colors.onSurfaceVariant, marginTop: 2 }}
+        >
+          {booking.murti_name}
+        </Text>
+        <View style={[styles.footer, { borderTopColor: theme.colors.outlineVariant }]}>
           <View style={styles.pendingRow}>
-            <MaterialCommunityIcons name="cash-clock" size={18} color={colors.deepSaffron} />
-            <Text style={styles.pending}>
+            <MaterialCommunityIcons
+              name="cash"
+              size={20}
+              color={theme.colors.tertiary}
+            />
+            <Text variant="labelLarge" style={{ color: theme.colors.tertiary }}>
               Pending: {formatCurrency(booking.pending)}
             </Text>
           </View>
-          <MaterialCommunityIcons name="chevron-right" size={24} color={colors.goldDark} />
+          <MaterialCommunityIcons
+            name="chevron-right"
+            size={24}
+            color={theme.colors.onSurfaceVariant}
+          />
         </View>
       </Pressable>
     </Animated.View>
@@ -59,15 +109,12 @@ const styles = StyleSheet.create({
   card: {
     marginVertical: spacing.sm,
     marginHorizontal: spacing.md,
-    backgroundColor: colors.white,
-    borderRadius: radius.lg,
     padding: spacing.md,
-    borderLeftWidth: 4,
-    borderLeftColor: colors.gold,
+    minHeight: touchTarget.min,
+    overflow: 'hidden',
   },
   cardPressed: {
     opacity: 0.92,
-    transform: [{ scale: 0.99 }],
   },
   topRow: {
     flexDirection: 'row',
@@ -76,28 +123,9 @@ const styles = StyleSheet.create({
     marginBottom: spacing.sm,
   },
   numberBadge: {
-    backgroundColor: colors.warmIvory,
     paddingHorizontal: spacing.sm,
-    paddingVertical: 4,
+    paddingVertical: spacing.xs,
     borderRadius: radius.sm,
-    borderWidth: 1,
-    borderColor: colors.goldLight,
-  },
-  bookingNumber: {
-    fontSize: 14,
-    fontWeight: '800',
-    color: colors.royalRed,
-    letterSpacing: 0.5,
-  },
-  customerName: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: colors.textPrimary,
-  },
-  murtiName: {
-    fontSize: 15,
-    color: colors.textSecondary,
-    marginTop: 2,
   },
   footer: {
     flexDirection: 'row',
@@ -105,25 +133,18 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginTop: spacing.md,
     paddingTop: spacing.sm,
-    borderTopWidth: 1,
-    borderTopColor: colors.grayLight,
+    borderTopWidth: StyleSheet.hairlineWidth,
   },
   pendingRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
   },
-  pending: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: colors.deepSaffron,
-  },
   chip: {
     height: 28,
   },
   chipText: {
-    color: colors.white,
-    fontWeight: '700',
+    fontWeight: '600',
     fontSize: 12,
     marginVertical: 0,
   },

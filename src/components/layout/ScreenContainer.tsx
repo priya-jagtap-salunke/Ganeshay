@@ -1,10 +1,9 @@
 import { StyleSheet, View, ViewStyle } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Appbar } from 'react-native-paper';
-import { LinearGradient } from 'expo-linear-gradient';
+import { Appbar, useTheme } from 'react-native-paper';
 import { useRouter } from 'expo-router';
-import { colors, gradients } from '@/theme/colors';
-import { shadows } from '@/theme/shadows';
+import { elevation } from '@/theme/shadows';
+import { touchTarget } from '@/theme/spacing';
 
 interface ScreenContainerProps {
   children: React.ReactNode;
@@ -12,6 +11,7 @@ interface ScreenContainerProps {
   showBack?: boolean;
   onBack?: () => void;
   style?: ViewStyle;
+  actions?: React.ReactNode;
 }
 
 export function ScreenContainer({
@@ -20,29 +20,43 @@ export function ScreenContainer({
   showBack = true,
   onBack,
   style,
+  actions,
 }: ScreenContainerProps) {
   const router = useRouter();
+  const theme = useTheme();
   const handleBack = onBack ?? (() => router.back());
 
   return (
-    <SafeAreaView style={[styles.container, style]} edges={['top', 'left', 'right']}>
+    <SafeAreaView
+      style={[styles.container, { backgroundColor: theme.colors.background }, style]}
+      edges={['top', 'left', 'right']}
+    >
       {title ? (
-        <LinearGradient
-          colors={[...gradients.header]}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={[styles.header, shadows.md as ViewStyle]}
+        <Appbar.Header
+          elevated
+          mode="small"
+          style={[
+            styles.header,
+            { backgroundColor: theme.colors.primary },
+            elevation.level2 as ViewStyle,
+          ]}
+          statusBarHeight={0}
         >
-          <View style={styles.headerInner}>
-            {showBack ? (
-              <Appbar.BackAction onPress={handleBack} color={colors.white} />
-            ) : (
-              <View style={styles.headerSpacer} />
-            )}
-            <Appbar.Content title={title} titleStyle={styles.headerTitle} style={styles.headerContent} />
-          </View>
-          <View style={styles.goldBar} />
-        </LinearGradient>
+          {showBack ? (
+            <Appbar.BackAction
+              onPress={handleBack}
+              color={theme.colors.onPrimary}
+              style={styles.touch}
+              accessibilityLabel="Go back"
+            />
+          ) : null}
+          <Appbar.Content
+            title={title}
+            titleStyle={[styles.headerTitle, { color: theme.colors.onPrimary }]}
+            color={theme.colors.onPrimary}
+          />
+          {actions}
+        </Appbar.Header>
       ) : null}
       <View style={styles.content}>{children}</View>
     </SafeAreaView>
@@ -52,35 +66,18 @@ export function ScreenContainer({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colors.warmIvory,
   },
   header: {
-    paddingBottom: 4,
-  },
-  headerInner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    minHeight: 56,
-  },
-  headerSpacer: {
-    width: 48,
-  },
-  headerContent: {
-    flex: 1,
+    elevation: 0,
   },
   headerTitle: {
-    color: colors.white,
-    fontSize: 20,
-    fontWeight: '700',
-    letterSpacing: 0.5,
+    fontSize: 22,
+    fontWeight: '500',
+    letterSpacing: 0,
   },
-  goldBar: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    height: 3,
-    backgroundColor: colors.gold,
+  touch: {
+    minWidth: touchTarget.min,
+    minHeight: touchTarget.min,
   },
   content: {
     flex: 1,

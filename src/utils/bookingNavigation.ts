@@ -1,11 +1,12 @@
 import { Router } from 'expo-router';
 
-export type BookingReturnTo = 'dashboard' | 'reports' | 'search';
+export type BookingReturnTo = 'dashboard' | 'reports' | 'search' | 'year';
 
 const RETURN_ROUTES: Record<BookingReturnTo, string> = {
   dashboard: '/(app)/dashboard',
   reports: '/(app)/reports',
   search: '/(app)/booking/search',
+  year: '/(app)/booking/year',
 };
 
 export function openBookingDetails(

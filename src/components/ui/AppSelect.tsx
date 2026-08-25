@@ -1,10 +1,8 @@
-import { StyleSheet, View, ViewStyle } from 'react-native';
-import { Text, Menu, Button } from 'react-native-paper';
+import { StyleSheet, View } from 'react-native';
+import { Text, Menu, Button, useTheme } from 'react-native-paper';
 import { useState } from 'react';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { colors } from '@/theme/colors';
-import { shadows } from '@/theme/shadows';
-import { radius } from '@/theme/spacing';
+import { radius, touchTarget } from '@/theme/spacing';
 
 interface SelectOption {
   label: string;
@@ -20,6 +18,7 @@ interface AppSelectProps {
 }
 
 export function AppSelect({ label, value, options, onChange, error }: AppSelectProps) {
+  const theme = useTheme();
   const [visible, setVisible] = useState(false);
   const selectedLabel = options.find((o) => o.value === value)?.label ?? 'Select';
 
@@ -28,15 +27,30 @@ export function AppSelect({ label, value, options, onChange, error }: AppSelectP
       <Menu
         visible={visible}
         onDismiss={() => setVisible(false)}
+        contentStyle={{
+          backgroundColor: theme.colors.elevation?.level2 ?? theme.colors.surface,
+          borderRadius: radius.md,
+        }}
         anchor={
           <Button
             mode="outlined"
             onPress={() => setVisible(true)}
-            style={[styles.button, shadows.sm as ViewStyle]}
+            style={[
+              styles.button,
+              {
+                borderColor: theme.colors.outline,
+                backgroundColor: theme.colors.surface,
+              },
+            ]}
             contentStyle={styles.buttonContent}
-            textColor={colors.royalRed}
+            textColor={theme.colors.onSurface}
+            accessibilityLabel={`${label}, ${selectedLabel}`}
             icon={() => (
-              <MaterialCommunityIcons name="chevron-down" size={20} color={colors.goldDark} />
+              <MaterialCommunityIcons
+                name="menu-down"
+                size={24}
+                color={theme.colors.onSurfaceVariant}
+              />
             )}
           >
             {label}: {selectedLabel}
@@ -51,36 +65,31 @@ export function AppSelect({ label, value, options, onChange, error }: AppSelectP
               setVisible(false);
             }}
             title={option.label}
-            titleStyle={styles.menuItem}
+            titleStyle={{ color: theme.colors.onSurface }}
+            leadingIcon={option.value === value ? 'check' : undefined}
           />
         ))}
       </Menu>
-      {error ? <Text style={styles.error}>{error}</Text> : null}
+      {error ? (
+        <Text variant="bodySmall" style={{ color: theme.colors.error, marginTop: 4, marginLeft: 12 }}>
+          {error}
+        </Text>
+      ) : null}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
-    marginVertical: 6,
+    marginVertical: 4,
   },
   button: {
-    borderColor: colors.goldLight,
-    borderRadius: radius.md,
-    borderWidth: 1.5,
-    backgroundColor: colors.white,
+    borderRadius: radius.xs,
+    borderWidth: 1,
   },
   buttonContent: {
-    minHeight: 56,
+    minHeight: touchTarget.comfortable,
     justifyContent: 'flex-start',
-  },
-  menuItem: {
-    fontWeight: '600',
-  },
-  error: {
-    color: colors.error,
-    fontSize: 12,
-    marginTop: 4,
-    marginLeft: 12,
+    paddingVertical: 4,
   },
 });

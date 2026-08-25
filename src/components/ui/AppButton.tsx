@@ -1,11 +1,9 @@
-import { StyleSheet, ViewStyle, TextStyle, Platform } from 'react-native';
-import { Button, ButtonProps } from 'react-native-paper';
-import { colors } from '@/theme/colors';
-import { shadows } from '@/theme/shadows';
-import { radius } from '@/theme/spacing';
+import { StyleSheet, ViewStyle, TextStyle } from 'react-native';
+import { Button, ButtonProps, useTheme } from 'react-native-paper';
+import { radius, touchTarget } from '@/theme/spacing';
 
 interface AppButtonProps extends ButtonProps {
-  variant?: 'primary' | 'secondary' | 'outline' | 'saffron';
+  variant?: 'primary' | 'secondary' | 'outline' | 'saffron' | 'tonal' | 'text';
 }
 
 export function AppButton({
@@ -15,33 +13,40 @@ export function AppButton({
   labelStyle,
   ...props
 }: AppButtonProps) {
-  const mode = variant === 'outline' ? 'outlined' : 'contained';
+  const theme = useTheme();
+
+  const mode =
+    variant === 'outline'
+      ? 'outlined'
+      : variant === 'text'
+        ? 'text'
+        : variant === 'tonal' || variant === 'secondary'
+          ? 'contained-tonal'
+          : 'contained';
 
   const buttonColor =
-    variant === 'secondary'
-      ? colors.gold
+    variant === 'primary'
+      ? theme.colors.primary
       : variant === 'saffron'
-        ? colors.deepSaffron
-        : colors.royalRed;
+        ? theme.colors.tertiary
+        : variant === 'secondary' || variant === 'tonal'
+          ? theme.colors.secondaryContainer
+          : undefined;
 
   const textColor =
-    variant === 'outline'
-      ? colors.royalRed
-      : variant === 'secondary'
-        ? colors.textPrimary
-        : colors.white;
+    variant === 'outline' || variant === 'text'
+      ? theme.colors.primary
+      : variant === 'secondary' || variant === 'tonal'
+        ? theme.colors.onSecondaryContainer
+        : theme.colors.onPrimary;
 
   return (
     <Button
       mode={mode}
-      buttonColor={variant === 'outline' ? undefined : buttonColor}
+      buttonColor={buttonColor}
       textColor={textColor}
-      style={[
-        styles.button,
-        variant !== 'outline' && (shadows.md as ViewStyle),
-        variant === 'outline' && styles.outline,
-        style as ViewStyle,
-      ]}
+      rippleColor={theme.colors.primary + '22'}
+      style={[styles.button, style as ViewStyle]}
       contentStyle={[styles.content, contentStyle as ViewStyle]}
       labelStyle={[styles.label, labelStyle as TextStyle]}
       {...props}
@@ -51,21 +56,16 @@ export function AppButton({
 
 const styles = StyleSheet.create({
   button: {
-    borderRadius: radius.md,
-    marginVertical: 6,
-  },
-  outline: {
-    borderColor: colors.gold,
-    borderWidth: 2,
-    backgroundColor: colors.white,
+    borderRadius: radius.full,
+    marginVertical: 4,
   },
   content: {
-    paddingVertical: 10,
-    minHeight: 58,
+    paddingVertical: 6,
+    minHeight: touchTarget.comfortable,
   },
   label: {
-    fontSize: 17,
-    fontWeight: '700',
-    letterSpacing: 0.5,
+    fontSize: 14,
+    fontWeight: '500',
+    letterSpacing: 0.1,
   },
 });

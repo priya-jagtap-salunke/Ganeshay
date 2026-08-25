@@ -1,10 +1,10 @@
-# Build Android APK for Bappaji Booking (EAS Cloud)
+# Build Android APK for Ganeshay (EAS Cloud)
 # Run in PowerShell from the project folder.
 
 $ErrorActionPreference = "Stop"
 Set-Location $PSScriptRoot\..
 
-Write-Host "=== Bappaji Booking - Android APK Build ===" -ForegroundColor Cyan
+Write-Host "=== Ganeshay - Android APK Build ===" -ForegroundColor Cyan
 
 if (-not (Test-Path ".env")) {
   Write-Host "WARNING: .env file not found. Create it from .env.example with your Supabase keys." -ForegroundColor Yellow

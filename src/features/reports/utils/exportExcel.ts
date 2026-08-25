@@ -35,9 +35,26 @@ async function saveWorkbook(
   }
 }
 
+export interface ExportFileOptions {
+  vendorName?: string;
+  year?: number;
+}
+
+function sanitizeFilenamePart(value: string): string {
+  return value.replace(/[^\w\-]+/g, '_').replace(/_+/g, '_').slice(0, 40);
+}
+
+function buildExportPrefix(options?: ExportFileOptions): string {
+  const vendorPart = options?.vendorName
+    ? `${sanitizeFilenamePart(options.vendorName)}_`
+    : 'Ganeshay_';
+  return vendorPart;
+}
+
 export async function exportYearBookingsExcel(
   bookings: Booking[],
-  year: number
+  year: number,
+  options?: ExportFileOptions
 ): Promise<void> {
   const sheet = XLSX.utils.aoa_to_sheet([
     [
@@ -71,11 +88,12 @@ export async function exportYearBookingsExcel(
   const workbook = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(workbook, sheet, `Bookings ${year}`);
 
-  await saveWorkbook(workbook, `Bappaji_Bookings_${year}.xlsx`);
+  await saveWorkbook(workbook, `${buildExportPrefix(options)}Bookings_${year}.xlsx`);
 }
 
 export async function exportCustomerListExcel(
-  customers: CustomerRecord[]
+  customers: CustomerRecord[],
+  options?: ExportFileOptions
 ): Promise<void> {
   const sheet = XLSX.utils.aoa_to_sheet([
     [
@@ -100,7 +118,11 @@ export async function exportCustomerListExcel(
   XLSX.utils.book_append_sheet(workbook, sheet, 'Customers');
 
   const date = new Date().toISOString().split('T')[0];
-  await saveWorkbook(workbook, `Bappaji_Customers_${date}.xlsx`);
+  const yearPart = options?.year ? `${options.year}_` : 'AllYears_';
+  await saveWorkbook(
+    workbook,
+    `${buildExportPrefix(options)}Customers_${yearPart}${date}.xlsx`
+  );
 }
 
 export function formatReportDate(dateStr: string): string {

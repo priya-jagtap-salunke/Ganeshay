@@ -1,10 +1,9 @@
 import { StyleSheet, View, ViewStyle } from 'react-native';
-import { Portal, Modal, Text } from 'react-native-paper';
+import { Portal, Modal, Text, useTheme } from 'react-native-paper';
 import Animated, { ZoomIn } from 'react-native-reanimated';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { AppButton } from './AppButton';
-import { colors } from '@/theme/colors';
-import { shadows } from '@/theme/shadows';
+import { elevation } from '@/theme/shadows';
 import { radius, spacing } from '@/theme/spacing';
 
 interface SuccessDialogProps {
@@ -24,6 +23,7 @@ export function SuccessDialog({
   onShareWhatsApp,
   whatsAppLoading,
 }: SuccessDialogProps) {
+  const theme = useTheme();
   if (!visible) return null;
 
   return (
@@ -31,18 +31,37 @@ export function SuccessDialog({
       <Modal
         visible={visible}
         onDismiss={onConfirm}
-        contentContainerStyle={[styles.modal, shadows.lg as ViewStyle]}
+        contentContainerStyle={[
+          styles.modal,
+          elevation.level3 as ViewStyle,
+          { backgroundColor: theme.colors.surface },
+        ]}
       >
         <Animated.View entering={ZoomIn.springify()} style={styles.content}>
-          <View style={styles.iconRing}>
+          <View
+            style={[
+              styles.iconRing,
+              { backgroundColor: theme.colors.secondaryContainer },
+            ]}
+          >
             <MaterialCommunityIcons
               name="check-circle"
-              size={56}
-              color={colors.gold}
+              size={48}
+              color={theme.colors.primary}
             />
           </View>
-          <Text style={styles.title}>{title}</Text>
-          <Text style={styles.message}>{message}</Text>
+          <Text
+            variant="headlineSmall"
+            style={[styles.title, { color: theme.colors.onSurface }]}
+          >
+            {title}
+          </Text>
+          <Text
+            variant="bodyMedium"
+            style={[styles.message, { color: theme.colors.onSurfaceVariant }]}
+          >
+            {message}
+          </Text>
 
           {onShareWhatsApp ? (
             <AppButton
@@ -73,10 +92,7 @@ export function SuccessDialog({
 const styles = StyleSheet.create({
   modal: {
     marginHorizontal: spacing.lg,
-    backgroundColor: colors.white,
     borderRadius: radius.xl,
-    borderWidth: 2,
-    borderColor: colors.goldLight,
     overflow: 'hidden',
   },
   content: {
@@ -84,28 +100,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   iconRing: {
-    width: 88,
-    height: 88,
-    borderRadius: 44,
-    backgroundColor: colors.warmIvory,
-    borderWidth: 3,
-    borderColor: colors.gold,
+    width: 72,
+    height: 72,
+    borderRadius: radius.full,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: spacing.md,
   },
   title: {
-    fontSize: 22,
-    fontWeight: '800',
-    color: colors.royalRed,
     textAlign: 'center',
     marginBottom: spacing.sm,
   },
   message: {
-    fontSize: 16,
-    color: colors.textSecondary,
     textAlign: 'center',
-    lineHeight: 24,
     marginBottom: spacing.lg,
   },
   button: {

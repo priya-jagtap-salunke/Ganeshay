@@ -12,16 +12,38 @@ import Animated, { FadeInDown } from 'react-native-reanimated';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter, type Href } from 'expo-router';
 import { ScreenContainer } from '@/components/layout/ScreenContainer';
+import { BrandLogo } from '@/components/ui/BrandLogo';
 import { BusinessLogo } from '@/components/ui/BusinessLogo';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { BookingCard } from '@/features/bookings/components/BookingCard';
 import { DashboardSection } from '@/features/dashboard/components/DashboardSection';
 import { useTodayBookings } from '@/features/bookings/hooks/useTodayBookings';
+import { useBusinessDocumentSettings } from '@/features/settings/store/settingsStore';
 import { Booking } from '@/types/booking';
 import { openBookingDetails } from '@/utils/bookingNavigation';
-import { colors } from '@/theme/colors';
 import { elevation } from '@/theme/shadows';
 import { radius, spacing } from '@/theme/spacing';
+
+/** Display serif for vendor title — matches receipt brand typography (no custom font package). */
+const vendorTitleFontFamily = Platform.select({
+  ios: 'Georgia',
+  android: 'serif',
+  web: 'Georgia, "Times New Roman", Times, serif',
+  default: 'serif',
+});
+
+const HOME_LOGO_SIZE = 56;
+
+function isRenderableBusinessLogo(uri: string | null | undefined): boolean {
+  if (!uri) return false;
+  return (
+    /^data:image\/(jpeg|jpg|png|webp|gif);/i.test(uri) ||
+    uri.startsWith('file://') ||
+    uri.startsWith('http://') ||
+    uri.startsWith('https://') ||
+    uri.startsWith('content://')
+  );
+}
 
 interface QuickActionProps {
   icon: keyof typeof MaterialCommunityIcons.glyphMap;
@@ -116,6 +138,7 @@ export default function DashboardScreen() {
   const theme = useTheme();
   const { width: screenWidth } = useWindowDimensions();
   const { data: todayBookings } = useTodayBookings();
+  const { businessName, businessLogo } = useBusinessDocumentSettings();
 
   const gridGap = spacing.sm;
   const horizontalPad = spacing.md;
@@ -129,6 +152,8 @@ export default function DashboardScreen() {
   const todayCount = todayBookings?.length ?? 0;
   const hasTodayBookings = todayCount > 0;
   const year = new Date().getFullYear();
+  const vendorTitle = businessName?.trim() || 'My Ganapati Stall';
+  const hasVendorLogo = isRenderableBusinessLogo(businessLogo);
 
   return (
     <ScreenContainer showBack={false}>
@@ -138,15 +163,47 @@ export default function DashboardScreen() {
         showsVerticalScrollIndicator={false}
         nestedScrollEnabled
       >
-        <View style={styles.homeHeader}>
-          <BusinessLogo size={36} style={styles.homeHeaderLogo} />
-          <Text
-            variant="titleMedium"
-            style={[styles.homeHeaderTitle, { color: theme.colors.onSurface }]}
-            numberOfLines={1}
-          >
-            Bappaji.com
-          </Text>
+        <View
+          style={styles.homeHeader}
+          accessibilityRole="header"
+          accessibilityLabel={`${vendorTitle} home`}
+        >
+          {hasVendorLogo ? (
+            <BusinessLogo size={HOME_LOGO_SIZE} style={styles.homeHeaderLogo} />
+          ) : (
+            <BrandLogo
+              variant="icon"
+              size={HOME_LOGO_SIZE}
+              framed
+              style={styles.homeHeaderLogo}
+            />
+          )}
+          <View style={styles.homeHeaderText}>
+            <Text
+              variant="headlineSmall"
+              style={[
+                styles.homeHeaderTitle,
+                {
+                  color: theme.colors.onSurface,
+                  fontFamily: vendorTitleFontFamily,
+                },
+              ]}
+              numberOfLines={2}
+              ellipsizeMode="tail"
+            >
+              {vendorTitle}
+            </Text>
+            <Text
+              variant="labelMedium"
+              style={[
+                styles.homeHeaderSubtitle,
+                { color: theme.colors.onSurfaceVariant },
+              ]}
+              numberOfLines={1}
+            >
+              Bappaji.com
+            </Text>
+          </View>
         </View>
 
         <DashboardSection
@@ -178,13 +235,6 @@ export default function DashboardScreen() {
               color={theme.colors.primary}
               width={actionWidth}
               onPress={() => router.push('/(app)/booking/year')}
-            />
-            <QuickAction
-              icon="phone-in-talk"
-              label="Add Enquiry"
-              color={colors.success}
-              width={actionWidth}
-              onPress={() => router.push('/(app)/enquiries')}
             />
             <QuickAction
               icon="phone-outgoing"
@@ -268,22 +318,35 @@ const styles = StyleSheet.create({
   homeHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.sm,
+    gap: spacing.md,
     marginHorizontal: spacing.md,
-    marginTop: spacing.sm,
-    marginBottom: spacing.xs,
-    paddingVertical: spacing.xs,
+    marginTop: spacing.md,
+    marginBottom: spacing.sm,
+    paddingVertical: spacing.sm,
+    paddingRight: spacing.xs,
     backgroundColor: 'transparent',
   },
   homeHeaderLogo: {
     flexShrink: 0,
   },
+  homeHeaderText: {
+    flex: 1,
+    minWidth: 0,
+    justifyContent: 'center',
+    gap: spacing.xxs,
+  },
   homeHeaderTitle: {
-    flexShrink: 1,
     fontWeight: '700',
-    fontSize: 18,
-    lineHeight: 22,
-    letterSpacing: 0.15,
+    fontSize: 24,
+    lineHeight: 30,
+    letterSpacing: -0.2,
+  },
+  homeHeaderSubtitle: {
+    fontWeight: '500',
+    fontSize: 12,
+    lineHeight: 16,
+    letterSpacing: 0.2,
+    opacity: 0.85,
   },
   actionsGrid: {
     flexDirection: 'row',

@@ -1,24 +1,55 @@
-import { StyleSheet, View } from 'react-native';
-import { Text } from 'react-native-paper';
+import { StyleSheet, View, ViewStyle } from 'react-native';
+import { Text, useTheme } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { colors } from '@/theme/colors';
+import { elevation } from '@/theme/shadows';
 import { radius, spacing } from '@/theme/spacing';
 
 interface EmptyStateProps {
   message: string;
   icon?: keyof typeof MaterialCommunityIcons.glyphMap;
+  compact?: boolean;
 }
 
 export function EmptyState({
   message,
   icon = 'book-search-outline',
+  compact = false,
 }: EmptyStateProps) {
+  const theme = useTheme();
+  const surface = theme.colors.elevation?.level1 ?? theme.colors.surface;
+
   return (
-    <View style={styles.container}>
-      <View style={styles.iconCircle}>
-        <MaterialCommunityIcons name={icon} size={48} color={colors.goldDark} />
+    <View
+      style={[
+        styles.container,
+        compact && styles.containerCompact,
+        compact && (elevation.level0 as ViewStyle),
+        compact && {
+          backgroundColor: surface,
+          borderColor: theme.colors.outlineVariant,
+        },
+      ]}
+      accessibilityRole="text"
+    >
+      <View
+        style={[
+          styles.iconCircle,
+          compact && styles.iconCircleCompact,
+          { backgroundColor: theme.colors.primaryContainer },
+        ]}
+      >
+        <MaterialCommunityIcons
+          name={icon}
+          size={compact ? 28 : 40}
+          color={theme.colors.primary}
+        />
       </View>
-      <Text style={styles.message}>{message}</Text>
+      <Text
+        variant={compact ? 'bodyMedium' : 'bodyLarge'}
+        style={[styles.message, { color: theme.colors.onSurfaceVariant }]}
+      >
+        {message}
+      </Text>
     </View>
   );
 }
@@ -29,22 +60,28 @@ const styles = StyleSheet.create({
     marginTop: spacing.xxl,
     paddingHorizontal: spacing.lg,
   },
+  containerCompact: {
+    marginTop: 0,
+    marginHorizontal: spacing.md,
+    paddingVertical: spacing.lg,
+    paddingHorizontal: spacing.md,
+    borderRadius: radius.lg,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
   iconCircle: {
-    width: 88,
-    height: 88,
-    borderRadius: 44,
-    backgroundColor: colors.warmIvory,
-    borderWidth: 2,
-    borderColor: colors.goldLight,
+    width: 80,
+    height: 80,
+    borderRadius: radius.full,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: spacing.md,
   },
+  iconCircleCompact: {
+    width: 56,
+    height: 56,
+    marginBottom: spacing.sm,
+  },
   message: {
     textAlign: 'center',
-    fontSize: 17,
-    color: colors.textSecondary,
-    fontWeight: '500',
-    lineHeight: 26,
   },
 });

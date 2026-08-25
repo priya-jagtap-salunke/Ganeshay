@@ -1,11 +1,11 @@
 {
-  "name": "bappaji-booking",
+  "name": "ganeshay",
   "version": "1.0.0",
   "main": "expo-router/entry",
   "scripts": {
     "start": "expo start",
-    "android": "expo start --android",
-    "ios": "expo start --ios",
+    "android": "expo run:android",
+    "ios": "expo run:ios",
     "web": "expo start --web",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
@@ -13,7 +13,14 @@
     "postinstall": "node scripts/create-assets.mjs",
     "build:android": "eas build --platform android --profile preview",
     "build:android:prod": "eas build --platform android --profile production",
-    "build:apk": "powershell -ExecutionPolicy Bypass -File scripts/build-apk.ps1"
+    "build:apk": "powershell -ExecutionPolicy Bypass -File scripts/build-apk.ps1",
+    "build:android:local": "powershell -ExecutionPolicy Bypass -File scripts/build-android-debug.ps1",
+    "build:android:standalone": "powershell -ExecutionPolicy Bypass -File scripts/build-android-release.ps1",
+    "fix:android-path": "powershell -ExecutionPolicy Bypass -File scripts/fix-windows-build-path.ps1",
+    "supabase:login": "npx supabase login",
+    "supabase:link": "npx supabase link",
+    "deploy:admin-function": "npx supabase functions deploy admin-create-vendor",
+    "deploy:ai-function": "npx supabase functions deploy ai-assistant"
   },
   "dependencies": {
     "@expo/vector-icons": "~14.0.4",
@@ -27,6 +34,7 @@
     "expo": "~52.0.46",
     "expo-asset": "~11.0.5",
     "expo-constants": "~17.0.8",
+    "expo-contacts": "~14.0.5",
     "expo-document-picker": "~12.0.2",
     "expo-file-system": "~18.0.12",
     "expo-font": "~13.0.4",
@@ -55,6 +63,7 @@
     "react-native-svg": "15.8.0",
     "react-native-url-polyfill": "^2.0.0",
     "react-native-web": "~0.19.13",
+    "react-native-webview": "13.12.5",
     "xlsx": "^0.18.5",
     "zod": "^3.24.2",
     "zustand": "^5.0.3"
@@ -64,6 +73,7 @@
     "@types/qrcode": "^1.5.5",
     "@types/react": "~18.3.12",
     "babel-plugin-module-resolver": "^5.0.2",
+    "sharp": "^0.33.5",
     "typescript": "~5.3.3"
   },
   "overrides": {

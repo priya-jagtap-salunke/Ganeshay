@@ -1,0 +1,8 @@
+# Binary assets ? prevent CRLF/LF corruption that breaks PNG CRC checks (jimp / Expo prebuild)
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.webp binary
+*.gif binary
+*.ico binary
+*.pdf binary
