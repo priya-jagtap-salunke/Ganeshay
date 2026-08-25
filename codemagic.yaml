@@ -1,40 +1,32 @@
 # Codemagic CI/CD — Expo / React Native (Ganeshay)
 # Docs: https://docs.codemagic.io/yaml-quick-start/building-a-react-native-app/
 #
-# Before first iOS build in Codemagic UI:
-# 1. Upload iOS signing certificate + provisioning profile (or connect App Store Connect API key).
-# 2. Create an environment group named "app_config" with:
+# This workflow builds an UNSIGNED iOS IPA for testing (no App Store / no profiles).
+#
+# Important limitations:
+# - An unsigned IPA cannot be installed on a real iPhone by itself.
+# - Use Sideloadly / AltStore / a free Apple ID to re-sign it for device testing,
+#   OR use the ios-simulator-app workflow and run on a Mac Simulator.
+#
+# Codemagic setup:
+# 1. Create environment group "app_config" with:
 #      EXPO_PUBLIC_SUPABASE_URL
 #      EXPO_PUBLIC_SUPABASE_ANON_KEY
-# 3. Under Integrations, add App Store Connect and set the name below (default: Codemagic).
-# 4. Set APP_STORE_APPLE_ID to your numeric App Store Connect app id
-#    (App Store Connect → App → General → App Information → Apple ID).
-# 5. After expo prebuild, confirm XCODE_SCHEME / XCODE_WORKSPACE match ios/*.xcworkspace
-#    (Expo uses the app "name" from app.json → "Ganeshay").
+# 2. After first prebuild, confirm XCODE_SCHEME / XCODE_WORKSPACE match ios/*.xcworkspace
+#    (Expo uses app.json name → "Ganeshay").
 
 workflows:
-  ios-ipa:
-    name: iOS IPA (Expo)
+  ios-unsigned-ipa:
+    name: iOS unsigned IPA (testing)
     max_build_duration: 120
     instance_type: mac_mini_m2
-    integrations:
-      # Must match the App Store Connect integration name in Codemagic → Teams → Integrations
-      app_store_connect: Codemagic
     environment:
-      ios_signing:
-        # Change to ad_hoc if you only need a sideload/TestFlight-alternative IPA
-        distribution_type: app_store
-        bundle_identifier: com.bappaji.booking
       groups:
-        # Create this group in Codemagic → Environment variables (do not commit secrets)
         - app_config
       vars:
         BUNDLE_ID: com.bappaji.booking
-        # Expo prebuild generates these from app.json "name": "Ganeshay"
         XCODE_WORKSPACE: Ganeshay.xcworkspace
         XCODE_SCHEME: Ganeshay
-        # Numeric Apple ID from App Store Connect (not the bundle id)
-        APP_STORE_APPLE_ID: "0000000000"
       node: 20.18.1
       xcode: latest
       cocoapods: default
@@ -45,7 +37,6 @@ workflows:
 
       - name: Write Expo public env file
         script: |
-          # Required so the embedded JS bundle has Supabase config
           if [ -z "${EXPO_PUBLIC_SUPABASE_URL:-}" ] || [ -z "${EXPO_PUBLIC_SUPABASE_ANON_KEY:-}" ]; then
             echo "Missing EXPO_PUBLIC_SUPABASE_URL or EXPO_PUBLIC_SUPABASE_ANON_KEY."
             echo "Add them to the Codemagic environment group 'app_config'."
@@ -63,50 +54,109 @@ workflows:
         script: |
           cd ios && pod install
 
-      - name: Set up code signing on Xcode project
-        script: |
-          xcode-project use-profiles --warn-only
-
-      - name: Increment iOS build number
+      - name: Set build number
         script: |
           cd "$CM_BUILD_DIR/ios"
-          if [ "$APP_STORE_APPLE_ID" != "0000000000" ]; then
-            LATEST_BUILD_NUMBER=$(app-store-connect get-latest-testflight-build-number "$APP_STORE_APPLE_ID" || true)
-            if [ -n "$LATEST_BUILD_NUMBER" ] && [ "$LATEST_BUILD_NUMBER" != "None" ]; then
-              NEW_BUILD_NUMBER=$((LATEST_BUILD_NUMBER + 1))
-            else
-              NEW_BUILD_NUMBER=${BUILD_NUMBER:-1}
-            fi
-          else
-            echo "APP_STORE_APPLE_ID not set — using Codemagic BUILD_NUMBER"
-            NEW_BUILD_NUMBER=${BUILD_NUMBER:-1}
-          fi
+          NEW_BUILD_NUMBER=${BUILD_NUMBER:-1}
           echo "Using iOS build number: $NEW_BUILD_NUMBER"
-          agvtool new-version -all "$NEW_BUILD_NUMBER"
+          agvtool new-version -all "$NEW_BUILD_NUMBER" || true
 
-      - name: Build IPA for distribution
+      - name: Build unsigned IPA (no App Store profiles)
         script: |
-          xcode-project build-ipa \
-            --workspace "$CM_BUILD_DIR/ios/$XCODE_WORKSPACE" \
-            --scheme "$XCODE_SCHEME" \
-            --export-options-plist /Users/builder/export_options.plist
+          set -e
+          ARCHIVE_PATH="$CM_BUILD_DIR/build/ios/unsigned/$XCODE_SCHEME.xcarchive"
+          IPA_DIR="$CM_BUILD_DIR/build/ios/ipa"
+          mkdir -p "$(dirname "$ARCHIVE_PATH")" "$IPA_DIR"
+
+          xcodebuild clean archive \
+            -workspace "$CM_BUILD_DIR/ios/$XCODE_WORKSPACE" \
+            -scheme "$XCODE_SCHEME" \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination "generic/platform=iOS" \
+            -archivePath "$ARCHIVE_PATH" \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGN_ENTITLEMENTS=""
+
+          APP_PATH="$(find "$ARCHIVE_PATH/Products/Applications" -name '*.app' -maxdepth 1 | head -n 1)"
+          if [ -z "$APP_PATH" ]; then
+            echo "No .app found inside archive at $ARCHIVE_PATH"
+            exit 1
+          fi
+
+          STAGE_DIR="$(mktemp -d)"
+          mkdir -p "$STAGE_DIR/Payload"
+          cp -R "$APP_PATH" "$STAGE_DIR/Payload/"
+          (
+            cd "$STAGE_DIR"
+            zip -qry "$IPA_DIR/${XCODE_SCHEME}-unsigned.ipa" Payload
+          )
+          echo "Unsigned IPA ready: $IPA_DIR/${XCODE_SCHEME}-unsigned.ipa"
 
     artifacts:
       - build/ios/ipa/*.ipa
+      - build/ios/unsigned/**/*.xcarchive
       - /tmp/xcodebuild_logs/*.log
-      - $HOME/Library/Developer/Xcode/DerivedData/**/Build/**/*.app
-      - $HOME/Library/Developer/Xcode/DerivedData/**/Build/**/*.dSYM
 
     publishing:
       email:
         recipients:
-          # Replace with your email(s), or remove this block
           - you@example.com
         notify:
           success: true
           failure: true
-      app_store_connect:
-        auth: integration
-        # Set true after APP_STORE_APPLE_ID + signing are configured
-        submit_to_testflight: false
-        submit_to_app_store: false
+
+  # Optional: unsigned Simulator .app (easy to test on a Mac, no device signing)
+  ios-simulator-app:
+    name: iOS Simulator app (testing)
+    max_build_duration: 120
+    instance_type: mac_mini_m2
+    environment:
+      groups:
+        - app_config
+      vars:
+        XCODE_WORKSPACE: Ganeshay.xcworkspace
+        XCODE_SCHEME: Ganeshay
+      node: 20.18.1
+      xcode: latest
+      cocoapods: default
+    scripts:
+      - name: Install npm dependencies
+        script: |
+          npm ci || npm install
+
+      - name: Write Expo public env file
+        script: |
+          if [ -z "${EXPO_PUBLIC_SUPABASE_URL:-}" ] || [ -z "${EXPO_PUBLIC_SUPABASE_ANON_KEY:-}" ]; then
+            echo "Missing EXPO_PUBLIC_SUPABASE_URL or EXPO_PUBLIC_SUPABASE_ANON_KEY in group 'app_config'."
+            exit 1
+          fi
+          printf 'EXPO_PUBLIC_SUPABASE_URL=%s\nEXPO_PUBLIC_SUPABASE_ANON_KEY=%s\n' \
+            "$EXPO_PUBLIC_SUPABASE_URL" \
+            "$EXPO_PUBLIC_SUPABASE_ANON_KEY" > "$CM_BUILD_DIR/.env"
+
+      - name: Generate iOS native project (Expo prebuild)
+        script: |
+          npx expo prebuild --platform ios --clean
+
+      - name: Install CocoaPods dependencies
+        script: |
+          cd ios && pod install
+
+      - name: Build Simulator .app (unsigned)
+        script: |
+          xcodebuild build \
+            -workspace "$CM_BUILD_DIR/ios/$XCODE_WORKSPACE" \
+            -scheme "$XCODE_SCHEME" \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO
+
+    artifacts:
+      - $HOME/Library/Developer/Xcode/DerivedData/**/Build/**/*.app
+      - /tmp/xcodebuild_logs/*.log
