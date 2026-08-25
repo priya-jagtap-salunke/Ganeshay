@@ -1,16 +1,17 @@
 ﻿/**
- * Generate Ganeshay product brand assets as real 8-bit PNGs (and Android mipmaps).
+ * Generate Ganeshay Expo / brand PNGs.
  *
  * Usage:
  *   node scripts/create-assets.mjs
  *   node scripts/create-assets.mjs --force
+ *   node scripts/create-assets.mjs --solid --force
  *   node scripts/create-assets.mjs --source "C:/path/to/logo.png"
  *
- * postinstall: if committed Expo PNGs are already valid, leave them alone.
- * Never overwrite good icons with tiny/corrupt placeholders (Codemagic jimp CRC).
+ * --solid: write jimp-compact-generated solid/simple PNGs only (no sharp).
+ *   Use on Codemagic BEFORE expo prebuild so CI never depends on git PNG bytes.
  *
- * Source may be JPEG or PNG; output is always valid PNG (magic 89 50 4E 47).
- * Does NOT touch vendor businessLogo / receipt artwork.
+ * postinstall: if Expo PNGs already jimp-readable, leave them alone.
+ * Never write the historical 76-byte corrupt placeholder (CRC 79495168).
  */
 import fs from 'fs';
 import path from 'path';
@@ -28,7 +29,7 @@ const FULL_LOGO = path.join(brandingDir, 'ganeshay-logo.png');
 const ICON_MARK = path.join(brandingDir, 'ganeshay-icon.png');
 const SPLASH_ART = path.join(brandingDir, 'ganeshay-splash.png');
 
-const SPLASH_BG = '#FFFAF5';
+const SPLASH_BG = 0xfffaf5ff; // #FFFAF5
 const ICON_SIZE = 1024;
 const FAVICON_SIZE = 48;
 
@@ -50,17 +51,12 @@ const ANDROID_SPLASH = [
   ['drawable-xxxhdpi', 800],
 ];
 
-/** Valid tiny PNG (10x10) — NOT the corrupt placeholder that caused CRC 79495168. */
-const SAFE_PLACEHOLDER_PNG = Buffer.from(
-  'iVBORw0KGgoAAAANSUhEUgAAAAoAAAAKCAYAAACNMs+9AAAAFUlEQVR42mNkYGD4z0DwMDIwMiABT4ABpIEvQAAAABJRU5ErkJggg==',
-  'base64'
-);
-
 function parseArgs(argv) {
-  const args = { force: false, source: null };
+  const args = { force: false, solid: false, source: null };
   for (let i = 0; i < argv.length; i += 1) {
     const a = argv[i];
     if (a === '--force' || a === '-f') args.force = true;
+    else if (a === '--solid') args.solid = true;
     else if (a === '--source' || a === '-s') {
       args.source = argv[i + 1] ?? null;
       i += 1;
@@ -96,17 +92,134 @@ function assertPngFile(filePath) {
   return buf.length;
 }
 
-/** True if file is a real PNG large enough to not be a corrupt CI placeholder. */
-function isValidExpoAsset(filePath) {
+function loadJimp() {
+  try {
+    return require('jimp-compact');
+  } catch {
+    return require(path.join(root, 'node_modules', 'jimp-compact'));
+  }
+}
+
+async function assertJimpReadable(filePath) {
+  const Jimp = loadJimp();
+  const buf = fs.readFileSync(filePath);
+  try {
+    const img = await Jimp.read(buf);
+    if (!img?.bitmap?.width) throw new Error('empty bitmap');
+  } catch (err) {
+    throw new Error(
+      `jimp-compact cannot read ${path.relative(root, filePath)} (${buf.length} bytes): ${err.message}. ` +
+        'This is the Codemagic Expo prebuild CRC failure mode — regenerate with --solid --force.'
+    );
+  }
+}
+
+/** True if file is a real PNG and jimp-compact can decode it. */
+async function isJimpValidExpoAsset(filePath) {
   if (!fs.existsSync(filePath)) return false;
   try {
-    const size = assertPngFile(filePath);
-    const name = path.basename(filePath);
-    if (name === 'favicon.png') return size >= 100;
-    return size >= 1024;
+    assertPngFile(filePath);
+    await assertJimpReadable(filePath);
+    return true;
   } catch {
     return false;
   }
+}
+
+function jimpGetBuffer(image, Jimp) {
+  return new Promise((resolve, reject) => {
+    image.getBuffer(Jimp.MIME_PNG, (err, b) => (err ? reject(err) : resolve(b)));
+  });
+}
+
+function jimpCreate(width, height, color, Jimp) {
+  return new Promise((resolve, reject) => {
+    // eslint-disable-next-line no-new
+    new Jimp(width, height, color, (err, image) => (err ? reject(err) : resolve(image)));
+  });
+}
+
+/**
+ * Solid ivory background + centered saffron circle (no external source, no sharp).
+ * Guaranteed readable by the same jimp-compact Expo uses.
+ */
+async function buildSolidMarkBuffer(size, Jimp) {
+  const image = await jimpCreate(size, size, SPLASH_BG, Jimp);
+  const r = Math.floor(size * 0.36);
+  const cx = Math.floor(size / 2);
+  const cy = Math.floor(size / 2);
+  const r2 = r * r;
+  image.scan(cx - r, cy - r, r * 2, r * 2, function (x, y, idx) {
+    const dx = x - cx;
+    const dy = y - cy;
+    if (dx * dx + dy * dy <= r2) {
+      this.bitmap.data[idx + 0] = 0xff;
+      this.bitmap.data[idx + 1] = 0x8c;
+      this.bitmap.data[idx + 2] = 0x00;
+      this.bitmap.data[idx + 3] = 0xff;
+    }
+  });
+  return jimpGetBuffer(image, Jimp);
+}
+
+async function writeBufferPng(dest, buf) {
+  ensureDir(path.dirname(dest));
+  if (!isPngBuffer(buf)) throw new Error(`Refusing to write non-PNG: ${dest}`);
+  fs.writeFileSync(dest, buf);
+  assertPngFile(dest);
+  await assertJimpReadable(dest);
+  console.log(`Wrote ${path.relative(root, dest)} (${buf.length} bytes, jimp-OK)`);
+}
+
+async function writeSolidExpoAssets() {
+  const Jimp = loadJimp();
+  ensureDir(assetsDir);
+  ensureDir(brandingDir);
+
+  const iconBuf = await buildSolidMarkBuffer(ICON_SIZE, Jimp);
+  // Splash uses the same mark (ivory + saffron circle) — fully jimp-authored.
+  const splashWithMark = await Jimp.read(iconBuf);
+  const splashOut = await jimpGetBuffer(splashWithMark, Jimp);
+
+  const favImage = await Jimp.read(iconBuf);
+  favImage.resize(FAVICON_SIZE, FAVICON_SIZE);
+  const favBuf = await jimpGetBuffer(favImage, Jimp);
+
+  const iconPath = path.join(assetsDir, 'icon.png');
+  const adaptivePath = path.join(assetsDir, 'adaptive-icon.png');
+  const faviconPath = path.join(assetsDir, 'favicon.png');
+  const splashPath = path.join(assetsDir, 'splash.png');
+
+  await writeBufferPng(iconPath, iconBuf);
+  await writeBufferPng(adaptivePath, iconBuf);
+  await writeBufferPng(splashPath, splashOut);
+  await writeBufferPng(faviconPath, favBuf);
+  await writeBufferPng(FULL_LOGO, iconBuf);
+  await writeBufferPng(ICON_MARK, iconBuf);
+  await writeBufferPng(SPLASH_ART, splashOut);
+
+  // Optional android mipmaps if native tree exists (jimp-only)
+  if (fs.existsSync(androidRes)) {
+    for (const [folder, size] of ANDROID_MIPMAP) {
+      const dir = path.join(androidRes, folder);
+      ensureDir(dir);
+      const scaled = await Jimp.read(iconBuf);
+      scaled.resize(size, size);
+      const buf = await jimpGetBuffer(scaled, Jimp);
+      await writeBufferPng(path.join(dir, 'ic_launcher.png'), buf);
+      await writeBufferPng(path.join(dir, 'ic_launcher_round.png'), buf);
+    }
+    for (const [folder, size] of ANDROID_SPLASH) {
+      const dir = path.join(androidRes, folder);
+      ensureDir(dir);
+      const scaled = await Jimp.read(splashOut);
+      scaled.resize(size, size);
+      const buf = await jimpGetBuffer(scaled, Jimp);
+      await writeBufferPng(path.join(dir, 'splashscreen_logo.png'), buf);
+    }
+  }
+
+  console.log('Solid jimp assets written and verified.');
 }
 
 async function loadSharp() {
@@ -115,42 +228,16 @@ async function loadSharp() {
     return mod.default;
   } catch (err) {
     throw new Error(
-      `sharp is required to regenerate brand assets. Install it (npm i -D sharp) or commit valid assets/. (${err.message})`
-    );
-  }
-}
-
-async function assertJimpReadable(filePath) {
-  let Jimp;
-  try {
-    Jimp = require('jimp-compact');
-  } catch {
-    console.warn('jimp-compact not installed — skipping CI CRC verification for', path.relative(root, filePath));
-    return;
-  }
-  const buf = fs.readFileSync(filePath);
-  try {
-    const img = await Jimp.read(buf);
-    if (!img?.bitmap?.width) throw new Error('empty bitmap');
-  } catch (err) {
-    throw new Error(
-      `jimp-compact cannot read ${path.relative(root, filePath)} (${buf.length} bytes): ${err.message}. ` +
-        'This is the Codemagic Expo prebuild CRC failure mode — regenerate with --force.'
+      `sharp is required for brand regenerate (non --solid). Install sharp or use --solid. (${err.message})`
     );
   }
 }
 
 /**
  * Re-encode RGBA through jimp-compact so Expo prebuild's PNG reader accepts CRC.
- * Sharp-only PNGs have occasionally failed on CI with identical CRC symptoms as corrupt placeholders.
  */
 async function reencodeWithJimp(filePath, size) {
-  let Jimp;
-  try {
-    Jimp = require('jimp-compact');
-  } catch {
-    return;
-  }
+  const Jimp = loadJimp();
   const sharp = await loadSharp();
   const { data, info } = await sharp(filePath)
     .ensureAlpha()
@@ -160,9 +247,7 @@ async function reencodeWithJimp(filePath, size) {
 
   const image = new Jimp(info.width, info.height);
   Buffer.from(data).copy(image.bitmap.data);
-  const out = await new Promise((resolve, reject) => {
-    image.getBuffer(Jimp.MIME_PNG, (err, b) => (err ? reject(err) : resolve(b)));
-  });
+  const out = await jimpGetBuffer(image, Jimp);
   if (!isPngBuffer(out)) throw new Error(`jimp re-encode produced non-PNG for ${filePath}`);
   const tmp = `${filePath}.tmp.png`;
   fs.writeFileSync(tmp, out);
@@ -172,6 +257,7 @@ async function reencodeWithJimp(filePath, size) {
     /* ignore */
   }
   fs.renameSync(tmp, filePath);
+  await assertJimpReadable(filePath);
 }
 
 async function writePng(sharp, pipeline, dest) {
@@ -218,7 +304,7 @@ async function composeSplash(sharp, circularPngBuffer, size = ICON_SIZE) {
       width: size,
       height: size,
       channels: 3,
-      background: SPLASH_BG,
+      background: '#FFFAF5',
     },
   })
     .png()
@@ -264,14 +350,9 @@ async function writeAndroidIcons(sharp, circularPngBuffer) {
   }
 }
 
-function writeMissingPlaceholdersOnly() {
-  ensureDir(assetsDir);
-  for (const file of EXPO_ASSET_FILES) {
-    const dest = path.join(assetsDir, file);
-    if (isValidExpoAsset(dest)) continue;
-    fs.writeFileSync(dest, SAFE_PLACEHOLDER_PNG);
-    console.log(`Wrote safe placeholder assets/${file}`);
-  }
+async function writeJimpPlaceholdersOnly() {
+  console.warn('Writing jimp-verified solid placeholders (brand source missing).');
+  await writeSolidExpoAssets();
 }
 
 async function main() {
@@ -279,15 +360,20 @@ async function main() {
   ensureDir(assetsDir);
   ensureDir(brandingDir);
 
+  if (args.solid) {
+    await writeSolidExpoAssets();
+    return;
+  }
+
   const expoPaths = EXPO_ASSET_FILES.map((f) => path.join(assetsDir, f));
-  const allValid = expoPaths.every((p) => isValidExpoAsset(p));
+  const validity = await Promise.all(expoPaths.map((p) => isJimpValidExpoAsset(p)));
+  const allValid = validity.every(Boolean);
 
   if (allValid && !args.force && !args.source) {
     for (const p of expoPaths) {
       console.log(`OK ${path.relative(root, p)} (${fs.statSync(p).size} bytes)`);
-      await assertJimpReadable(p);
     }
-    console.log('postinstall: committed Expo assets are valid — leaving unchanged (use --force to rebuild).');
+    console.log('postinstall: Expo assets are jimp-readable — leaving unchanged (use --force or --solid).');
     return;
   }
 
@@ -297,13 +383,7 @@ async function main() {
     (fs.existsSync(FULL_LOGO) ? FULL_LOGO : null);
 
   if (!sourceCandidate || !fs.existsSync(sourceCandidate)) {
-    writeMissingPlaceholdersOnly();
-    for (const p of expoPaths) {
-      if (fs.existsSync(p)) await assertJimpReadable(p);
-    }
-    console.warn(
-      'Missing brand source. Pass --source <path> or add assets/branding/ganeshay-logo.png'
-    );
+    await writeJimpPlaceholdersOnly();
     return;
   }
 
@@ -339,7 +419,6 @@ async function main() {
   );
   await writePng(sharp, await composeSplash(sharp, circularBuf, ICON_SIZE), splashPath);
 
-  // Permanent Codemagic fix: Expo prebuild uses jimp-compact; re-encode Expo public assets with it.
   await reencodeWithJimp(iconPath, ICON_SIZE);
   await reencodeWithJimp(adaptivePath, ICON_SIZE);
   await reencodeWithJimp(splashPath, ICON_SIZE);

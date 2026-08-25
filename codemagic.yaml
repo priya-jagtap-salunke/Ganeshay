@@ -23,6 +23,15 @@ workflows:
       xcode: latest
       cocoapods: default
     scripts:
+      - name: Show checkout commit and PNG sizes
+        script: |
+          set -e
+          echo "CM_COMMIT=${CM_COMMIT:-}"
+          echo "HEAD=$(git rev-parse HEAD)"
+          git log -1 --oneline
+          ls -la assets/*.png assets/branding/*.png || true
+          wc -c assets/icon.png assets/splash.png assets/adaptive-icon.png assets/favicon.png || true
+
       - name: Install npm dependencies
         script: |
           npm ci || npm install
@@ -37,6 +46,20 @@ workflows:
             "$EXPO_PUBLIC_SUPABASE_URL" \
             "$EXPO_PUBLIC_SUPABASE_ANON_KEY" > "$CM_BUILD_DIR/.env"
           echo "Wrote .env for Expo public config."
+
+      # Nuclear unblock: overwrite Expo icons with jimp-compact-generated PNGs on the
+      # builder disk so prebuild never reads historical corrupt 76-byte git blobs /
+      # cached checkouts. Then verify and name any failing file before prebuild.
+      - name: Regenerate Expo PNGs with jimp (solid)
+        script: |
+          set -e
+          node scripts/create-assets.mjs --solid --force
+          ls -la assets/*.png
+          wc -c assets/icon.png assets/splash.png assets/adaptive-icon.png assets/favicon.png
+
+      - name: Verify Expo PNG assets
+        script: |
+          node scripts/verify-expo-pngs.mjs
 
       - name: Generate iOS native project (Expo prebuild)
         script: |
@@ -114,6 +137,14 @@ workflows:
       xcode: latest
       cocoapods: default
     scripts:
+      - name: Show checkout commit and PNG sizes
+        script: |
+          set -e
+          echo "CM_COMMIT=${CM_COMMIT:-}"
+          echo "HEAD=$(git rev-parse HEAD)"
+          git log -1 --oneline
+          wc -c assets/icon.png assets/splash.png assets/adaptive-icon.png assets/favicon.png || true
+
       - name: Install npm dependencies
         script: |
           npm ci || npm install
@@ -123,6 +154,15 @@ workflows:
           printf 'EXPO_PUBLIC_SUPABASE_URL=%s\nEXPO_PUBLIC_SUPABASE_ANON_KEY=%s\n' \
             "$EXPO_PUBLIC_SUPABASE_URL" \
             "$EXPO_PUBLIC_SUPABASE_ANON_KEY" > "$CM_BUILD_DIR/.env"
+
+      - name: Regenerate Expo PNGs with jimp (solid)
+        script: |
+          set -e
+          node scripts/create-assets.mjs --solid --force
+
+      - name: Verify Expo PNG assets
+        script: |
+          node scripts/verify-expo-pngs.mjs
 
       - name: Generate iOS native project (Expo prebuild)
         script: |

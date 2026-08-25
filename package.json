@@ -11,6 +11,8 @@
     "typecheck": "tsc --noEmit",
     "setup": "node scripts/create-assets.mjs",
     "postinstall": "node scripts/create-assets.mjs",
+    "verify:pngs": "node scripts/verify-expo-pngs.mjs",
+    "assets:solid": "node scripts/create-assets.mjs --solid --force",
     "build:android": "eas build --platform android --profile preview",
     "build:android:prod": "eas build --platform android --profile production",
     "build:apk": "powershell -ExecutionPolicy Bypass -File scripts/build-apk.ps1",
