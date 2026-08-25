@@ -73,7 +73,8 @@
           "photosPermission": "Allow Ganeshay to access your photos to capture murti photos and set your business logo.",
           "cameraPermission": "Allow Ganeshay to use the camera to photograph the selected murti."
         }
-      ]
+      ],
+      "./plugins/withFmtXcodeFix.js"
     ],
     "experiments": {
       "typedRoutes": true

@@ -20,7 +20,9 @@ workflows:
         EXPO_PUBLIC_SUPABASE_URL: https://tglxcguucxxsbdhqzxov.supabase.co
         EXPO_PUBLIC_SUPABASE_ANON_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRnbHhjZ3V1Y3h4c2JkaHF6eG92Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODM0MTIwMjEsImV4cCI6MjA5ODk4ODAyMX0.S_SgcfbT-DJNlcRHg-ZZA8F-Y8rc4bjjhpihBB4A1xA
       node: 20.18.1
-      xcode: latest
+      # Expo 52 / RN 0.76: prefer Xcode 16.x (docs recommend 16.1). Do NOT use
+      # `latest` — that can select Xcode 26.x and break fmt/consteval compile.
+      xcode: 16.2
       cocoapods: default
     scripts:
       - name: Show checkout commit and PNG sizes
@@ -29,6 +31,9 @@ workflows:
           echo "CM_COMMIT=${CM_COMMIT:-}"
           echo "HEAD=$(git rev-parse HEAD)"
           git log -1 --oneline
+          echo "=== Xcode (expect 16.2) ==="
+          xcodebuild -version
+          xcode-select -p
           ls -la assets/*.png assets/branding/*.png || true
           wc -c assets/icon.png assets/splash.png assets/adaptive-icon.png assets/favicon.png || true
 
@@ -64,6 +69,11 @@ workflows:
       - name: Generate iOS native project (Expo prebuild)
         script: |
           npx expo prebuild --platform ios --clean
+          # Confirm fmt Xcode workaround was injected by plugins/withFmtXcodeFix.js
+          grep -n "with-fmt-xcode-fix" ios/Podfile || {
+            echo "ERROR: fmt Xcode fix missing from Podfile after prebuild"
+            exit 1
+          }
 
       - name: Install CocoaPods dependencies
         script: |
@@ -134,7 +144,7 @@ workflows:
         EXPO_PUBLIC_SUPABASE_URL: https://tglxcguucxxsbdhqzxov.supabase.co
         EXPO_PUBLIC_SUPABASE_ANON_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRnbHhjZ3V1Y3h4c2JkaHF6eG92Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODM0MTIwMjEsImV4cCI6MjA5ODk4ODAyMX0.S_SgcfbT-DJNlcRHg-ZZA8F-Y8rc4bjjhpihBB4A1xA
       node: 20.18.1
-      xcode: latest
+      xcode: 16.2
       cocoapods: default
     scripts:
       - name: Show checkout commit and PNG sizes
@@ -143,6 +153,9 @@ workflows:
           echo "CM_COMMIT=${CM_COMMIT:-}"
           echo "HEAD=$(git rev-parse HEAD)"
           git log -1 --oneline
+          echo "=== Xcode (expect 16.2) ==="
+          xcodebuild -version
+          xcode-select -p
           wc -c assets/icon.png assets/splash.png assets/adaptive-icon.png assets/favicon.png || true
 
       - name: Install npm dependencies
@@ -167,6 +180,10 @@ workflows:
       - name: Generate iOS native project (Expo prebuild)
         script: |
           npx expo prebuild --platform ios --clean
+          grep -n "with-fmt-xcode-fix" ios/Podfile || {
+            echo "ERROR: fmt Xcode fix missing from Podfile after prebuild"
+            exit 1
+          }
 
       - name: Install CocoaPods dependencies
         script: |
