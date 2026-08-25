@@ -166,8 +166,10 @@ export interface StallDetailsShareRecipient {
 }
 
 /**
- * Open WhatsApp to the recipient with the vendor stall template message
- * and optional murties catalog PDF (used by Tele-calling → Send).
+ * Shared Send Details flow for Enquiries and Tele-calling:
+ * - Opens whichever WhatsApp is installed (Messenger or Business)
+ * - Prefills the settings enquiry message
+ * - Attaches the settings murties catalog PDF when uploaded
  * Never auto-sends — user confirms in WhatsApp.
  */
 export async function shareStallDetailsOnWhatsApp(
@@ -197,7 +199,15 @@ export async function shareStallDetailsOnWhatsApp(
 
   let shareablePdfUri: string | undefined;
   if (hasPdf && settings.murtiesPdfUri) {
-    shareablePdfUri = await ensureShareableMurtiesPdfUri(settings.murtiesPdfUri);
+    try {
+      shareablePdfUri = await ensureShareableMurtiesPdfUri(settings.murtiesPdfUri);
+    } catch (error) {
+      console.warn('Could not prepare murties PDF for WhatsApp share', error);
+      Alert.alert(
+        'PDF Attach Failed',
+        'Could not prepare the catalog PDF. The message will still open in WhatsApp without the attachment.'
+      );
+    }
   }
 
   try {
@@ -210,6 +220,16 @@ export async function shareStallDetailsOnWhatsApp(
   } catch (error) {
     const errMsg = error instanceof Error ? error.message : String(error);
     const lower = errMsg.toLowerCase();
+
+    if (
+      lower.includes('user did not share') ||
+      lower.includes('user cancelled') ||
+      lower.includes('user canceled') ||
+      lower.includes('ecancelled') ||
+      lower.includes('ecanceled')
+    ) {
+      return;
+    }
 
     if (lower.includes('not installed') || lower.includes('no activity')) {
       // If the preferred app failed, try the other WhatsApp package once.
@@ -237,23 +257,19 @@ export async function shareStallDetailsOnWhatsApp(
 }
 
 /**
- * Enquiries → Send Details: open the device WhatsApp app directly
- * (no share sheet / app chooser / browser) with the existing stall message.
+ * Enquiries → Send Details — same flow as Tele-calling Send:
+ * installed WhatsApp + settings message + settings PDF.
  */
 export async function shareEnquiryOnWhatsApp(
   enquiry: Enquiry,
   settings: BusinessSettings
 ): Promise<void> {
-  const phone = formatWhatsAppPhone(enquiry.mobile);
-  const message = buildStallDetailsWhatsAppMessage(settings, {
-    customerName: enquiry.customer_name,
-    callDate: enquiry.call_date,
-  });
-
-  if (Platform.OS === 'web') {
-    await shareOnWeb(phone, message, settings);
-    return;
-  }
-
-  await openDeviceWhatsAppApp(phone, message);
+  await shareStallDetailsOnWhatsApp(
+    {
+      mobile: enquiry.mobile,
+      customerName: enquiry.customer_name,
+      callDate: enquiry.call_date,
+    },
+    settings
+  );
 }

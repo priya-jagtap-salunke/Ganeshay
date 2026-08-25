@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+﻿import { useState, useEffect } from 'react';
 import { StyleSheet, View, Alert, ViewStyle } from 'react-native';
 import { Text } from 'react-native-paper';
 import { useRouter } from 'expo-router';
@@ -112,7 +112,7 @@ export function SettingsForm() {
 
       <Text style={styles.subsectionTitle}>Enquiry WhatsApp Message</Text>
       <Text style={styles.fieldHint}>
-        This pre-drafted message is sent when you tap Send Details on an enquiry.
+        This pre-drafted message is sent when you tap Send Details on an enquiry or Tele-calling.
         Use placeholders: {ENQUIRY_MESSAGE_PLACEHOLDERS}
       </Text>
       <AppInput
