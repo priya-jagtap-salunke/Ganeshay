@@ -2,7 +2,6 @@ import { useState, useCallback } from 'react';
 import { Alert } from 'react-native';
 import {
   generateReceiptPdf,
-  viewReceiptPdf,
   downloadReceiptPdf,
   shareReceipt,
   shareReceiptViaWhatsApp,
@@ -63,17 +62,17 @@ export function useReceipt() {
     }
   };
 
-  const viewReceipt = (booking: Booking) =>
-    runAction('view', booking, viewReceiptPdf);
-
   const downloadPdf = (booking: Booking) =>
     runAction('download', booking, (uri) =>
       downloadReceiptPdf(uri, booking.booking_number)
     );
 
-  const shareOnWhatsApp = (booking: Booking) =>
+  const shareOnWhatsApp = (
+    booking: Booking,
+    options?: { messageVariant?: 'default' | 'newBooking' }
+  ) =>
     runAction('whatsapp', booking, (uri) =>
-      shareReceiptViaWhatsApp(booking, uri)
+      shareReceiptViaWhatsApp(booking, uri, options)
     );
 
   const generateAndShare = (booking: Booking) =>
@@ -82,7 +81,6 @@ export function useReceipt() {
     );
 
   return {
-    viewReceipt,
     downloadPdf,
     shareOnWhatsApp,
     generateAndShare,

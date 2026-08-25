@@ -51,6 +51,7 @@ export default function EditBookingScreen() {
             advance: Number(booking.advance),
             payment_mode: booking.payment_mode ?? undefined,
             notes: booking.notes ?? undefined,
+            murti_photo_uri: booking.murti_photo_uri ?? null,
           }}
           onSubmit={handleSubmit}
           isLoading={saving}

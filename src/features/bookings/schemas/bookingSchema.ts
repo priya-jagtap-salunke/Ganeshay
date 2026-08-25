@@ -12,6 +12,7 @@ export const bookingSchema = z
     advance: z.coerce.number().min(0, 'Advance cannot be negative'),
     payment_mode: z.enum(['Cash', 'UPI', 'Card']).optional(),
     notes: z.string().optional(),
+    murti_photo_uri: z.string().nullable().optional(),
   })
   .refine((data) => data.advance <= data.price, {
     message: 'Advance cannot exceed total price',

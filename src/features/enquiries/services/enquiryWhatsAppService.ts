@@ -6,13 +6,18 @@ import {
   getWhatsAppAppUrl,
   getWhatsAppWebUrl,
 } from '@/features/receipt/utils/whatsappMessage';
-import { buildEnquiryWhatsAppMessage } from '../utils/enquiryWhatsAppMessage';
+import { buildStallDetailsWhatsAppMessage } from '../utils/enquiryWhatsAppMessage';
 import {
   downloadMurtiesPdfOnWeb,
   ensureShareableMurtiesPdfUri,
 } from '@/features/settings/utils/murtiesPdfStorage';
 
-async function isWhatsAppInstalled(): Promise<boolean> {
+const WHATSAPP_PACKAGE = 'com.whatsapp';
+const WHATSAPP_BUSINESS_PACKAGE = 'com.whatsapp.w4b';
+
+type WhatsAppAppKind = 'consumer' | 'business';
+
+async function isWhatsAppSchemeAvailable(): Promise<boolean> {
   try {
     return await Linking.canOpenURL('whatsapp://send');
   } catch {
@@ -20,23 +25,86 @@ async function isWhatsAppInstalled(): Promise<boolean> {
   }
 }
 
+/** Prefer Messenger if installed; otherwise WhatsApp Business. */
+async function resolveInstalledWhatsAppApp(): Promise<WhatsAppAppKind | null> {
+  if (Platform.OS === 'android') {
+    try {
+      const Share = (await import('react-native-share')).default;
+      const consumer = await Share.isPackageInstalled(WHATSAPP_PACKAGE);
+      if (consumer.isInstalled) return 'consumer';
+      const business = await Share.isPackageInstalled(WHATSAPP_BUSINESS_PACKAGE);
+      if (business.isInstalled) return 'business';
+      return null;
+    } catch {
+      // Fall through to scheme check
+    }
+  }
+
+  const schemeOk = await isWhatsAppSchemeAvailable();
+  return schemeOk ? 'consumer' : null;
+}
+
+/**
+ * Open the device WhatsApp app (compose/chat) with phone + prefilled text.
+ * Uses the WhatsApp package that is actually installed (Messenger or Business).
+ */
+async function openDeviceWhatsAppApp(
+  phone: string,
+  message: string
+): Promise<void> {
+  const appUrl = getWhatsAppAppUrl(phone, message);
+  const encodedText = encodeURIComponent(message);
+  const installed = await resolveInstalledWhatsAppApp();
+
+  if (!installed) {
+    Alert.alert(
+      'WhatsApp Not Installed',
+      'Please install WhatsApp or WhatsApp Business to send stall details.'
+    );
+    return;
+  }
+
+  if (Platform.OS === 'android') {
+    const packageName =
+      installed === 'business' ? WHATSAPP_BUSINESS_PACKAGE : WHATSAPP_PACKAGE;
+    const intentUrl =
+      `intent://send?phone=${phone}&text=${encodedText}` +
+      `#Intent;scheme=whatsapp;package=${packageName};end`;
+
+    try {
+      await Linking.openURL(intentUrl);
+      return;
+    } catch {
+      // Fall through to whatsapp://
+    }
+  }
+
+  await Linking.openURL(appUrl);
+}
+
 async function shareViaReactNativeShare(
   message: string,
   phone: string,
+  appKind: WhatsAppAppKind,
   pdfUri?: string
 ): Promise<void> {
   const Share = (await import('react-native-share')).default;
+  const social =
+    appKind === 'business'
+      ? Share.Social.WHATSAPPBUSINESS
+      : Share.Social.WHATSAPP;
+
   const payload: {
     title: string;
     message: string;
-    social: typeof Share.Social.WHATSAPP;
+    social: typeof social;
     whatsAppNumber: string;
     url?: string;
     type?: string;
   } = {
     title: 'Stall Enquiry Details',
     message,
-    social: Share.Social.WHATSAPP,
+    social,
     whatsAppNumber: phone,
   };
 
@@ -57,16 +125,7 @@ async function shareNativeFallback(
   message: string,
   pdfUri?: string
 ): Promise<void> {
-  const hasWhatsApp = await isWhatsAppInstalled();
-  if (!hasWhatsApp) {
-    Alert.alert(
-      'WhatsApp Not Installed',
-      'Please install WhatsApp to send stall details to this enquiry.'
-    );
-    return;
-  }
-
-  await Linking.openURL(getWhatsAppAppUrl(phone, message));
+  await openDeviceWhatsAppApp(phone, message);
 
   if (pdfUri) {
     const Sharing = await import('expo-sharing');
@@ -100,16 +159,39 @@ async function shareOnWeb(
   await Linking.openURL(whatsAppUrl);
 }
 
-export async function shareEnquiryOnWhatsApp(
-  enquiry: Enquiry,
+export interface StallDetailsShareRecipient {
+  mobile: string;
+  customerName?: string | null;
+  callDate?: string | null;
+}
+
+/**
+ * Open WhatsApp to the recipient with the vendor stall template message
+ * and optional murties catalog PDF (used by Tele-calling → Send).
+ * Never auto-sends — user confirms in WhatsApp.
+ */
+export async function shareStallDetailsOnWhatsApp(
+  recipient: StallDetailsShareRecipient,
   settings: BusinessSettings
 ): Promise<void> {
-  const phone = formatWhatsAppPhone(enquiry.mobile);
-  const message = buildEnquiryWhatsAppMessage(settings, enquiry);
+  const phone = formatWhatsAppPhone(recipient.mobile);
+  const message = buildStallDetailsWhatsAppMessage(settings, {
+    customerName: recipient.customerName,
+    callDate: recipient.callDate,
+  });
   const hasPdf = Boolean(settings.murtiesPdfUri);
 
   if (Platform.OS === 'web') {
     await shareOnWeb(phone, message, settings);
+    return;
+  }
+
+  const installedApp = await resolveInstalledWhatsAppApp();
+  if (!installedApp) {
+    Alert.alert(
+      'WhatsApp Not Installed',
+      'Please install WhatsApp or WhatsApp Business to send stall details.'
+    );
     return;
   }
 
@@ -119,19 +201,32 @@ export async function shareEnquiryOnWhatsApp(
   }
 
   try {
-    await shareViaReactNativeShare(message, phone, shareablePdfUri);
+    await shareViaReactNativeShare(
+      message,
+      phone,
+      installedApp,
+      shareablePdfUri
+    );
   } catch (error) {
     const errMsg = error instanceof Error ? error.message : String(error);
+    const lower = errMsg.toLowerCase();
 
-    if (
-      errMsg.toLowerCase().includes('not installed') ||
-      errMsg.toLowerCase().includes('whatsapp')
-    ) {
-      const installed = await isWhatsAppInstalled();
-      if (!installed) {
+    if (lower.includes('not installed') || lower.includes('no activity')) {
+      // If the preferred app failed, try the other WhatsApp package once.
+      const alternate: WhatsAppAppKind =
+        installedApp === 'consumer' ? 'business' : 'consumer';
+      try {
+        await shareViaReactNativeShare(
+          message,
+          phone,
+          alternate,
+          shareablePdfUri
+        );
+        return;
+      } catch {
         Alert.alert(
           'WhatsApp Not Installed',
-          'Please install WhatsApp to send stall details to this enquiry.'
+          'Please install WhatsApp or WhatsApp Business to send stall details.'
         );
         return;
       }
@@ -139,4 +234,26 @@ export async function shareEnquiryOnWhatsApp(
 
     await shareNativeFallback(phone, message, shareablePdfUri);
   }
+}
+
+/**
+ * Enquiries → Send Details: open the device WhatsApp app directly
+ * (no share sheet / app chooser / browser) with the existing stall message.
+ */
+export async function shareEnquiryOnWhatsApp(
+  enquiry: Enquiry,
+  settings: BusinessSettings
+): Promise<void> {
+  const phone = formatWhatsAppPhone(enquiry.mobile);
+  const message = buildStallDetailsWhatsAppMessage(settings, {
+    customerName: enquiry.customer_name,
+    callDate: enquiry.call_date,
+  });
+
+  if (Platform.OS === 'web') {
+    await shareOnWeb(phone, message, settings);
+    return;
+  }
+
+  await openDeviceWhatsAppApp(phone, message);
 }

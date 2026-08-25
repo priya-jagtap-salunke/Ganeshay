@@ -1,12 +1,17 @@
 import { Platform, Alert } from 'react-native';
-import QRCode from 'qrcode';
 import { Booking } from '@/types/booking';
 import { BusinessDocumentSettings } from '@/types/settings';
 import { buildReceiptHtml } from '../templates/receiptHtml';
 import { shareReceiptOnWhatsApp } from './whatsappService';
+import {
+  buildLogoMarkup,
+  buildQrMarkup,
+  sanitizeSettingsForNativePdf,
+} from '../utils/receiptMarkup';
+import { isWebBrowser, usesNativePdf } from '../utils/receiptPlatform';
 
 /** Bump when invoice HTML changes so cached PDFs regenerate. */
-const RECEIPT_TEMPLATE_VERSION = 5;
+const RECEIPT_TEMPLATE_VERSION = 14;
 
 const pdfCache = new Map<string, string>();
 
@@ -40,27 +45,47 @@ export function setCachedReceiptUri(bookingId: string, uri: string): void {
   pdfCache.set(receiptCacheKey(bookingId), uri);
 }
 
-async function generateQrDataUrl(bookingNumber: string): Promise<string> {
-  return QRCode.toDataURL(bookingNumber, {
-    width: 200,
-    margin: 1,
-    color: { dark: '#B22234', light: '#FFFAF5' },
-  });
+function pdfSettingsForNative(
+  settings: BusinessDocumentSettings
+): BusinessDocumentSettings {
+  return sanitizeSettingsForNativePdf(settings);
+}
+
+async function generateNativePdf(html: string): Promise<string> {
+  try {
+    const Print = await import('expo-print');
+    const result = await Print.printToFileAsync({
+      html,
+      width: 595,
+      height: 842,
+      margins: {
+        top: 20,
+        bottom: 20,
+        left: 20,
+        right: 20,
+      },
+    });
+
+    if (!result?.uri) {
+      throw new Error('PDF file was not created on this device.');
+    }
+
+    return result.uri;
+  } catch (error) {
+    const detail =
+      error instanceof Error ? error.message : 'Unknown print error';
+    if (Platform.OS === 'android') {
+      throw new Error(
+        `Could not create PDF on Android (${detail}). Rebuild and reinstall the app, then try again.`
+      );
+    }
+    throw new Error(`Could not create PDF (${detail}).`);
+  }
 }
 
 async function generateWebPdf(html: string): Promise<string> {
   const { generatePdfBlobUrlFromHtml } = await import('./webPdfGenerator');
   return generatePdfBlobUrlFromHtml(html);
-}
-
-async function generateNativePdf(html: string): Promise<string> {
-  const Print = await import('expo-print');
-  const { uri } = await Print.printToFileAsync({
-    html,
-    width: 595,
-    height: 842,
-  });
-  return uri;
 }
 
 export async function generateReceiptPdf(
@@ -73,16 +98,42 @@ export async function generateReceiptPdf(
     return cached;
   }
 
-  const qrDataUrl = await generateQrDataUrl(booking.booking_number);
-  const html = buildReceiptHtml(booking, settings, qrDataUrl);
+  const forNativePdf = usesNativePdf();
+  const pdfSettings = pdfSettingsForNative(settings);
+  const qrMarkup = await buildQrMarkup(booking.booking_number, forNativePdf);
+  const logoMarkup = await buildLogoMarkup(pdfSettings, forNativePdf);
+  const html = buildReceiptHtml(
+    booking,
+    pdfSettings,
+    qrMarkup,
+    logoMarkup,
+    forNativePdf
+  );
 
-  const uri =
-    Platform.OS === 'web'
-      ? await generateWebPdf(html)
-      : await generateNativePdf(html);
+  const uri = isWebBrowser()
+    ? await generateWebPdf(html)
+    : await generateNativePdf(html);
 
   pdfCache.set(cacheKey, uri);
   return uri;
+}
+
+/** Same HTML as PDF generation — for on-screen view (no print dialog). */
+export async function buildReceiptViewHtml(
+  booking: Booking,
+  settings: BusinessDocumentSettings
+): Promise<string> {
+  const forNativePdf = usesNativePdf();
+  const pdfSettings = pdfSettingsForNative(settings);
+  const qrMarkup = await buildQrMarkup(booking.booking_number, forNativePdf);
+  const logoMarkup = await buildLogoMarkup(pdfSettings, forNativePdf);
+  return buildReceiptHtml(
+    booking,
+    pdfSettings,
+    qrMarkup,
+    logoMarkup,
+    forNativePdf
+  );
 }
 
 export async function prepareReceiptFile(
@@ -99,6 +150,10 @@ export async function prepareReceiptFile(
   return destPath;
 }
 
+/**
+ * @deprecated View Receipt now opens ReceiptViewer screen (no print UI).
+ * Kept for any legacy callers — opens PDF without print dialog where possible.
+ */
 export async function viewReceiptPdf(pdfUri: string): Promise<void> {
   if (Platform.OS === 'web') {
     if (typeof window !== 'undefined') {
@@ -107,8 +162,20 @@ export async function viewReceiptPdf(pdfUri: string): Promise<void> {
     return;
   }
 
-  const Print = await import('expo-print');
-  await Print.printAsync({ uri: pdfUri });
+  // Do not call Print.printAsync — that shows the Print UI.
+  // Prefer in-app ReceiptViewer via navigation. Fallback: system share/view.
+  const Sharing = await import('expo-sharing');
+  if (await Sharing.isAvailableAsync()) {
+    await Sharing.shareAsync(pdfUri, {
+      mimeType: 'application/pdf',
+      dialogTitle: 'Receipt',
+      UTI: 'com.adobe.pdf',
+    });
+    return;
+  }
+
+  const Linking = await import('expo-linking');
+  await Linking.openURL(pdfUri);
 }
 
 export async function downloadReceiptPdf(
@@ -162,7 +229,8 @@ export async function shareReceipt(pdfUri: string, bookingNumber: string) {
 
 export async function shareReceiptViaWhatsApp(
   booking: Booking,
-  pdfUri: string
+  pdfUri: string,
+  options?: { messageVariant?: 'default' | 'newBooking' }
 ): Promise<void> {
-  await shareReceiptOnWhatsApp(booking, pdfUri);
+  await shareReceiptOnWhatsApp(booking, pdfUri, options);
 }

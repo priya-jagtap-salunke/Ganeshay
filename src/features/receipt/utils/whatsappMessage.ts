@@ -4,7 +4,21 @@ function formatAmount(amount: number): string {
   return Number(amount).toLocaleString('en-IN');
 }
 
-export function buildWhatsAppMessage(booking: Booking): string {
+function formatMurtiLabel(booking: Booking): string {
+  const name = (booking.murti_name ?? '').trim();
+  const size = (booking.murti_size ?? '').trim();
+  if (name && size) return `${name} / ${size}`;
+  return name || size || '—';
+}
+
+export function buildWhatsAppMessage(
+  booking: Booking,
+  options?: { includeMurtiPhoto?: boolean }
+): string {
+  const attachmentLine = options?.includeMurtiPhoto
+    ? 'Your booking receipt and murti photo are attached with this message.'
+    : 'Your booking receipt is attached with this message.';
+
   return `🙏 गणपती बाप्पा मोरया 🙏
 
 Dear ${booking.customer_name},
@@ -19,11 +33,43 @@ Total Amount: ₹${formatAmount(booking.price)}
 Advance Paid: ₹${formatAmount(booking.advance)}
 Pending Amount: ₹${formatAmount(booking.pending)}
 
-Your booking receipt is attached with this message.
+${attachmentLine}
 
 Thank you for choosing Bappaji.com.
 
 Ganpati Bappa Morya! 🙏`;
+}
+
+/** New Booking → Send on WhatsApp — exact Marathi confirmation template. */
+export function buildNewBookingWhatsAppMessage(booking: Booking): string {
+  return `🌺🙏 गणपती बाप्पा मोरया! 🙏🌺
+
+प्रिय ${booking.customer_name},
+
+आपल्या घरच्या बाप्पांसाठी आमच्यावर विश्वास ठेवून Eco-Friendly मूर्तीची बुकिंग केल्याबद्दल मनापासून धन्यवाद! ❤️
+
+आपल्या बुकिंगची छोटीशी माहिती 👇
+
+✨ Booking ID: ${booking.booking_number}
+🪷 मूर्ती: ${formatMurtiLabel(booking)}
+💰 Total Amount: ₹${formatAmount(booking.price)}
+✅ Paid: ₹${formatAmount(booking.advance)}
+💳 Balance Amount: ₹${formatAmount(booking.pending)}
+
+📸 आपल्या बुक केलेल्या बाप्पांचा फोटो आणि 🧾 Invoice PDF या मेसेजसोबत पाठवत आहोत.
+
+आता फक्त बाप्पांच्या आगमनाची वाट… ❤️
+लवकरच आपल्या घरी बाप्पा विराजमान होवोत आणि सुख, समाधान व आनंद घेऊन येवोत! 🌺✨
+
+आपल्या प्रेम आणि विश्वासाबद्दल पुन्हा एकदा धन्यवाद. 🙏
+
+✨ गणेश चतुर्थीच्या मनःपूर्वक शुभेच्छा! ✨
+गणपती बाप्पा मोरया! ❤️🙏
+
+━━━━━━━━━━━━━━
+🌿 Bappaji.com
+📞 प्रिया साळुंके | 7972962917
+━━━━━━━━━━━━━━`;
 }
 
 /** Normalize mobile to WhatsApp format (country code, no + prefix). */

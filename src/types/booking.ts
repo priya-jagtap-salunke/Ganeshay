@@ -11,6 +11,8 @@ export interface Booking {
   delivery_date: string | null;
   murti_name: string;
   murti_size: string | null;
+  /** Local file URI or data URI of the selected murti photo. */
+  murti_photo_uri?: string | null;
   price: number;
   advance: number;
   pending: number;
@@ -29,6 +31,7 @@ export interface BookingFormData {
   delivery_date?: string;
   murti_name?: string;
   murti_size?: string;
+  murti_photo_uri?: string | null;
   price: number;
   advance: number;
   payment_mode?: PaymentMode;

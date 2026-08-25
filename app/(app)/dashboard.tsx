@@ -1,20 +1,26 @@
-import { StyleSheet, View, ScrollView, ViewStyle, Pressable } from 'react-native';
-import { Text } from 'react-native-paper';
-import { LinearGradient } from 'expo-linear-gradient';
+import {
+  StyleSheet,
+  View,
+  ScrollView,
+  ViewStyle,
+  Pressable,
+  useWindowDimensions,
+  Platform,
+} from 'react-native';
+import { Text, useTheme } from 'react-native-paper';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { useRouter, type Href } from 'expo-router';
 import { ScreenContainer } from '@/components/layout/ScreenContainer';
 import { BusinessLogo } from '@/components/ui/BusinessLogo';
-import { StatCard } from '@/components/ui/StatCard';
-import { LoadingOverlay } from '@/components/ui/LoadingOverlay';
+import { EmptyState } from '@/components/ui/EmptyState';
 import { BookingCard } from '@/features/bookings/components/BookingCard';
-import { useDashboardStats } from '@/features/dashboard/hooks/useDashboardStats';
+import { DashboardSection } from '@/features/dashboard/components/DashboardSection';
 import { useTodayBookings } from '@/features/bookings/hooks/useTodayBookings';
-import { formatCurrency } from '@/utils/currency';
+import { Booking } from '@/types/booking';
 import { openBookingDetails } from '@/utils/bookingNavigation';
-import { colors, gradients } from '@/theme/colors';
-import { shadows } from '@/theme/shadows';
+import { colors } from '@/theme/colors';
+import { elevation } from '@/theme/shadows';
 import { radius, spacing } from '@/theme/spacing';
 
 interface QuickActionProps {
@@ -22,19 +28,84 @@ interface QuickActionProps {
   label: string;
   onPress: () => void;
   color: string;
+  width: number;
+  emphasized?: boolean;
 }
 
-function QuickAction({ icon, label, onPress, color }: QuickActionProps) {
+function withAlpha(hex: string, alphaHex: string): string {
+  if (hex.startsWith('#') && (hex.length === 7 || hex.length === 9)) {
+    return `${hex.slice(0, 7)}${alphaHex}`;
+  }
+  return hex;
+}
+
+function QuickAction({
+  icon,
+  label,
+  onPress,
+  color,
+  width,
+  emphasized = false,
+}: QuickActionProps) {
+  const theme = useTheme();
+  const surface = emphasized
+    ? theme.colors.primaryContainer
+    : theme.colors.elevation?.level1 ?? theme.colors.surface;
+
   return (
-    <Animated.View entering={FadeInDown.springify()} style={styles.actionWrapper}>
-      <Pressable onPress={onPress} style={({ pressed }) => pressed && { opacity: 0.9 }}>
-        <LinearGradient
-          colors={[colors.white, colors.warmIvory]}
-          style={[styles.actionCard, shadows.md as ViewStyle]}
+    <Animated.View
+      entering={FadeInDown.springify()}
+      style={[styles.actionWrapper, { width }]}
+    >
+      <Pressable
+        onPress={onPress}
+        android_ripple={{ color: color + '22' }}
+        accessibilityRole="button"
+        accessibilityLabel={label}
+        style={({ pressed }) => [
+          styles.actionCard,
+          elevation.level1 as ViewStyle,
+          {
+            backgroundColor: surface,
+            borderRadius: radius.lg,
+            borderColor: emphasized
+              ? withAlpha(theme.colors.primary, '55')
+              : theme.colors.outlineVariant,
+            borderWidth: emphasized ? 1.5 : StyleSheet.hairlineWidth,
+          },
+          pressed && Platform.OS !== 'android' && { opacity: 0.9 },
+        ]}
+      >
+        <View
+          style={[
+            styles.actionIcon,
+            {
+              backgroundColor: withAlpha(color, '1A'),
+              width: emphasized ? 44 : 40,
+              height: emphasized ? 44 : 40,
+              borderRadius: emphasized ? 22 : 20,
+            },
+          ]}
         >
-          <MaterialCommunityIcons name={icon} size={32} color={color} />
-          <Text style={styles.actionLabel}>{label}</Text>
-        </LinearGradient>
+          <MaterialCommunityIcons
+            name={icon}
+            size={emphasized ? 24 : 22}
+            color={color}
+          />
+        </View>
+        <Text
+          variant="labelMedium"
+          style={{
+            color: theme.colors.onSurface,
+            textAlign: 'center',
+            fontWeight: emphasized ? '700' : '600',
+            fontSize: 12,
+            lineHeight: 15,
+          }}
+          numberOfLines={2}
+        >
+          {label}
+        </Text>
       </Pressable>
     </Animated.View>
   );
@@ -42,126 +113,145 @@ function QuickAction({ icon, label, onPress, color }: QuickActionProps) {
 
 export default function DashboardScreen() {
   const router = useRouter();
-  const { data: stats, isLoading } = useDashboardStats();
+  const theme = useTheme();
+  const { width: screenWidth } = useWindowDimensions();
   const { data: todayBookings } = useTodayBookings();
 
-  const statsReady = stats != null;
+  const gridGap = spacing.sm;
+  const horizontalPad = spacing.md;
+  const panelInset = spacing.xs;
+  const actionColumns = 3;
+  const innerWidth = screenWidth - horizontalPad * 2 - panelInset * 2;
+  const actionWidth = Math.floor(
+    (innerWidth - gridGap * (actionColumns - 1)) / actionColumns
+  );
 
-  const statCount = (n: number | undefined) =>
-    statsReady ? (n ?? 0) : '—';
+  const todayCount = todayBookings?.length ?? 0;
+  const hasTodayBookings = todayCount > 0;
+  const year = new Date().getFullYear();
 
   return (
     <ScreenContainer showBack={false}>
-      <LoadingOverlay visible={isLoading && !stats} />
-      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
-        <LinearGradient
-          colors={[...gradients.hero]}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={[styles.hero, shadows.lg as ViewStyle]}
+      <ScrollView
+        style={styles.scroll}
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+        nestedScrollEnabled
+      >
+        <View style={styles.homeHeader}>
+          <BusinessLogo size={36} style={styles.homeHeaderLogo} />
+          <Text
+            variant="titleMedium"
+            style={[styles.homeHeaderTitle, { color: theme.colors.onSurface }]}
+            numberOfLines={1}
+          >
+            Bappaji.com
+          </Text>
+        </View>
+
+        <DashboardSection
+          title="Quick actions"
+          subtitle="Jump into common tasks"
+          icon="flash-outline"
+          contained
+          dense
         >
-          <View style={styles.heroBrandRow}>
-            <BusinessLogo size={130} style={styles.heroLogo} />
-            <View style={styles.heroTextBlock}>
-              <Text style={styles.heroGreeting}>Namaste!</Text>
-              <Text style={styles.heroTitle}>Bappaji.com</Text>
-              <Text style={styles.heroSubtitle}>
-                Eco-Friendly Shadu Mati Shree Ganesha Murti Stall Dashboard
-              </Text>
-            </View>
+          <View style={[styles.actionsGrid, { gap: gridGap }]}>
+            <QuickAction
+              icon="plus-circle"
+              label="New Booking"
+              color={theme.colors.primary}
+              width={actionWidth}
+              emphasized
+              onPress={() => router.push('/(app)/booking/new')}
+            />
+            <QuickAction
+              icon="magnify"
+              label="Search"
+              color={theme.colors.tertiary}
+              width={actionWidth}
+              onPress={() => router.push('/(app)/booking/search')}
+            />
+            <QuickAction
+              icon="calendar-month"
+              label={`${year} Bookings`}
+              color={theme.colors.primary}
+              width={actionWidth}
+              onPress={() => router.push('/(app)/booking/year')}
+            />
+            <QuickAction
+              icon="phone-in-talk"
+              label="Add Enquiry"
+              color={colors.success}
+              width={actionWidth}
+              onPress={() => router.push('/(app)/enquiries')}
+            />
+            <QuickAction
+              icon="phone-outgoing"
+              label="Tele-calling"
+              color={theme.colors.tertiary}
+              width={actionWidth}
+              onPress={() => router.push('/(app)/telecalling' as Href)}
+            />
+            <QuickAction
+              icon="cog"
+              label="Settings"
+              color={theme.colors.onSurfaceVariant}
+              width={actionWidth}
+              onPress={() => router.push('/(app)/settings')}
+            />
           </View>
-          <View style={styles.heroDivider} />
-        </LinearGradient>
+        </DashboardSection>
 
-        <Text style={styles.sectionLabelCentered}>OVERVIEW</Text>
-        <View style={styles.statsGrid}>
-          <StatCard
-            title="Today's Bookings"
-            value={statCount(stats?.todayBookingsCount)}
-            icon="calendar-check"
-            accentColor={colors.royalRed}
-            index={0}
-            compact
-          />
-          <StatCard
-            title="Total Bookings"
-            value={statCount(stats?.totalBookingsCount)}
-            icon="calendar-multiple-check"
-            accentColor={colors.royalRedLight}
-            index={1}
-            compact
-          />
-          <StatCard
-            title="Today's Collection"
-            value={statsReady ? formatCurrency(stats.todayCollection) : '—'}
-            icon="cash-multiple"
-            accentColor={colors.goldDark}
-            index={2}
-            compact
-          />
-          <StatCard
-            title="Pending Amount"
-            value={statsReady ? formatCurrency(stats.pendingAmount) : '—'}
-            icon="clock-outline"
-            accentColor={colors.deepSaffron}
-            index={3}
-            compact
-          />
-          <StatCard
-            title="Delivered"
-            value={statCount(stats?.deliveredCount)}
-            icon="truck-check-outline"
-            accentColor={colors.success}
-            index={4}
-            compact
-          />
-        </View>
-
-        <Text style={styles.sectionLabel}>QUICK ACTIONS</Text>
-        <View style={styles.actionsRow}>
-          <QuickAction
-            icon="plus-circle"
-            label="New Booking"
-            color={colors.royalRed}
-            onPress={() => router.push('/(app)/booking/new')}
-          />
-          <QuickAction
-            icon="magnify"
-            label="Search"
-            color={colors.deepSaffron}
-            onPress={() => router.push('/(app)/booking/search')}
-          />
-          <QuickAction
-            icon="cog"
-            label="Settings"
-            color={colors.goldDark}
-            onPress={() => router.push('/(app)/settings')}
-          />
-        </View>
-
-        <Text style={styles.sectionLabel}>ENQUIRIES</Text>
-        <View style={styles.actionsRow}>
-          <QuickAction
-            icon="phone-in-talk"
-            label="Add Enquiry"
-            color={colors.success}
-            onPress={() => router.push('/(app)/enquiries')}
-          />
-        </View>
-
-        {todayBookings && todayBookings.length > 0 ? (
-          <Animated.View entering={FadeInDown.delay(300).springify()}>
-            <Text style={styles.sectionLabel}>TODAY'S BOOKINGS</Text>
-            {todayBookings.map((booking, i) => (
-              <BookingCard
-                key={booking.id}
-                booking={booking}
-                index={i}
-                onPress={() => openBookingDetails(router, booking.id, 'dashboard')}
-              />
-            ))}
-          </Animated.View>
-        ) : null}
+        <DashboardSection
+          title="Today's bookings"
+          subtitle={
+            hasTodayBookings
+              ? `${todayCount} scheduled for today`
+              : 'Nothing scheduled yet'
+          }
+          icon="calendar-clock"
+          contained={false}
+          trailing={
+            hasTodayBookings ? (
+              <View
+                style={[
+                  styles.countBadge,
+                  { backgroundColor: theme.colors.primaryContainer },
+                ]}
+              >
+                <Text
+                  variant="labelMedium"
+                  style={{
+                    color: theme.colors.onPrimaryContainer,
+                    fontWeight: '600',
+                  }}
+                >
+                  {todayCount}
+                </Text>
+              </View>
+            ) : null
+          }
+        >
+          {hasTodayBookings ? (
+            <Animated.View entering={FadeInDown.delay(200).springify()}>
+              {todayBookings!.map((booking: Booking, i: number) => (
+                <BookingCard
+                  key={booking.id}
+                  booking={booking}
+                  index={i}
+                  onPress={() => openBookingDetails(router, booking.id, 'dashboard')}
+                />
+              ))}
+            </Animated.View>
+          ) : (
+            <EmptyState
+              compact
+              icon="calendar-blank-outline"
+              message="No bookings for today. Create one from Quick actions."
+            />
+          )}
+        </DashboardSection>
       </ScrollView>
     </ScreenContainer>
   );
@@ -169,107 +259,59 @@ export default function DashboardScreen() {
 
 const styles = StyleSheet.create({
   scroll: {
+    flex: 1,
+  },
+  scrollContent: {
+    flexGrow: 1,
     paddingBottom: spacing.xxl,
   },
-  hero: {
-    margin: spacing.md,
-    borderRadius: radius.xl,
-    paddingVertical: spacing.xl,
-    paddingHorizontal: spacing.lg,
-    alignItems: 'center',
-    borderWidth: 2,
-    borderColor: colors.goldLight,
-  },
-  heroBrandRow: {
+  homeHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.md,
+    gap: spacing.sm,
+    marginHorizontal: spacing.md,
+    marginTop: spacing.sm,
+    marginBottom: spacing.xs,
+    paddingVertical: spacing.xs,
+    backgroundColor: 'transparent',
   },
-  heroTextBlock: {
-    flexShrink: 1,
-  },
-  heroLogo: {
+  homeHeaderLogo: {
     flexShrink: 0,
   },
-  heroGreeting: {
+  homeHeaderTitle: {
+    flexShrink: 1,
+    fontWeight: '700',
     fontSize: 18,
-    color: colors.goldLight,
-    fontWeight: '600',
-    letterSpacing: 1,
+    lineHeight: 22,
+    letterSpacing: 0.15,
   },
-  heroTitle: {
-    fontSize: 30,
-    fontWeight: '800',
-    color: colors.white,
-    marginTop: 4,
-    letterSpacing: 0.5,
-  },
-  heroSubtitle: {
-    fontSize: 12,
-    color: colors.goldLight,
-    marginTop: 6,
-    fontWeight: '500',
-    lineHeight: 18,
-  },
-  heroDivider: {
-    width: 60,
-    height: 3,
-    backgroundColor: colors.gold,
-    borderRadius: 2,
-    marginTop: spacing.md,
-  },
-  sectionLabel: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: colors.textSecondary,
-    letterSpacing: 1.5,
-    marginLeft: spacing.lg,
-    marginTop: spacing.md,
-    marginBottom: spacing.sm,
-  },
-  sectionLabelCentered: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: colors.textSecondary,
-    letterSpacing: 1.5,
-    textAlign: 'center',
-    marginTop: spacing.md,
-    marginBottom: spacing.sm,
-  },
-  statsGrid: {
+  actionsGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     justifyContent: 'center',
-    alignItems: 'flex-start',
-    paddingHorizontal: spacing.sm,
-    paddingBottom: spacing.xs,
-  },
-  actionsRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'center',
-    paddingHorizontal: spacing.sm,
-    marginBottom: spacing.md,
-    gap: spacing.xs,
   },
   actionWrapper: {
-    width: '30%',
-    minWidth: 96,
-    marginHorizontal: spacing.xs,
+    // width applied inline from layout calc
   },
   actionCard: {
-    borderRadius: radius.lg,
-    paddingVertical: spacing.lg,
-    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.sm + 2,
+    paddingHorizontal: spacing.xs,
     alignItems: 'center',
-    borderWidth: 1,
-    borderColor: colors.goldLight,
-    gap: spacing.sm,
+    justifyContent: 'center',
+    minHeight: 88,
+    gap: spacing.xs,
+    overflow: 'hidden',
   },
-  actionLabel: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: colors.textPrimary,
-    textAlign: 'center',
+  actionIcon: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  countBadge: {
+    minWidth: 28,
+    height: 28,
+    borderRadius: radius.full,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: spacing.sm,
   },
 });

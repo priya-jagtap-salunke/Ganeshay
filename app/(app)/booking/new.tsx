@@ -29,13 +29,18 @@ export default function NewBookingScreen() {
   );
 
   const handleSubmit = async (data: BookingSchemaType) => {
+    if (saving) return;
     setSaving(true);
     try {
       const booking = await createBooking.mutateAsync(data);
       setSavedBooking(booking);
       setShowSuccess(true);
     } catch (err) {
-      Alert.alert('Error', getErrorMessage(err));
+      const message = getErrorMessage(err);
+      Alert.alert(
+        message.toLowerCase().includes('duplicate') ? 'Duplicate Entry' : 'Error',
+        message
+      );
     } finally {
       setSaving(false);
     }
@@ -47,9 +52,8 @@ export default function NewBookingScreen() {
   };
 
   const handleShareWhatsApp = async () => {
-    if (!savedBooking) return;
-    setShowSuccess(false);
-    await shareOnWhatsApp(savedBooking);
+    if (!savedBooking || isBusy) return;
+    await shareOnWhatsApp(savedBooking, { messageVariant: 'newBooking' });
   };
 
   return (

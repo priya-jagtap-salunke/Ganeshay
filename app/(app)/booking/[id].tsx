@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { StyleSheet, ScrollView, Alert } from 'react-native';
-import { Text, Divider } from 'react-native-paper';
+import { StyleSheet, ScrollView, Alert, View, Image } from 'react-native';
+import { Text, Divider, useTheme } from 'react-native-paper';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { ScreenContainer } from '@/components/layout/ScreenContainer';
 import { AppButton } from '@/components/ui/AppButton';
@@ -18,6 +18,7 @@ import { formatCurrency } from '@/utils/currency';
 import { formatDisplayDate } from '@/utils/dates';
 import { getErrorMessage } from '@/utils/errors';
 import { colors } from '@/theme/colors';
+import { radius, spacing } from '@/theme/spacing';
 
 function DetailRow({
   label,
@@ -30,23 +31,28 @@ function DetailRow({
   highlight?: boolean;
   valueColor?: string;
 }) {
+  const theme = useTheme();
   return (
-    <Text style={styles.row}>
-      <Text style={styles.label}>{label}: </Text>
+    <View style={styles.row}>
+      <Text variant="bodyMedium" style={{ color: theme.colors.onSurfaceVariant, flex: 1 }}>
+        {label}
+      </Text>
       <Text
+        variant="bodyLarge"
         style={[
-          styles.value,
-          highlight && styles.highlight,
+          { color: theme.colors.onSurface, fontWeight: '500', flexShrink: 1, textAlign: 'right' },
+          highlight && { color: theme.colors.tertiary },
           valueColor ? { color: valueColor } : undefined,
         ]}
       >
         {value}
       </Text>
-    </Text>
+    </View>
   );
 }
 
 export default function BookingDetailsScreen() {
+  const theme = useTheme();
   const { id, returnTo } = useLocalSearchParams<{
     id: string;
     returnTo?: string;
@@ -56,7 +62,6 @@ export default function BookingDetailsScreen() {
   const markDelivered = useMarkDelivered();
   const deleteBooking = useDeleteBooking();
   const {
-    viewReceipt,
     downloadPdf,
     shareOnWhatsApp,
     isBusy,
@@ -65,6 +70,11 @@ export default function BookingDetailsScreen() {
   const [showDelivery, setShowDelivery] = useState(false);
 
   const handleBack = () => closeBookingDetails(router, returnTo);
+
+  const handleViewReceipt = () => {
+    if (!booking?.id) return;
+    router.push(`/(app)/booking/receipt/${booking.id}`);
+  };
 
   const handleDelete = () => {
     if (!booking) return;
@@ -110,24 +120,46 @@ export default function BookingDetailsScreen() {
   }
 
   const statusColor =
-    booking.status === 'Delivered' ? colors.success : colors.deepSaffron;
+    booking.status === 'Delivered' ? colors.success : theme.colors.tertiary;
 
   return (
     <ScreenContainer title={booking.booking_number} onBack={handleBack}>
       <LoadingOverlay visible={isBusy} />
       <ScrollView contentContainerStyle={styles.scroll}>
-        <Text style={styles.sectionTitle}>Customer Details</Text>
+        <Text
+          variant="titleMedium"
+          style={{ color: theme.colors.primary, marginBottom: spacing.sm }}
+        >
+          Customer Details
+        </Text>
         <DetailRow label="Name" value={booking.customer_name} />
         <DetailRow label="Phone" value={booking.mobile} />
 
         <Divider style={styles.divider} />
 
-        <Text style={styles.sectionTitle}>Murti Details</Text>
+        <Text
+          variant="titleMedium"
+          style={{ color: theme.colors.primary, marginBottom: spacing.sm }}
+        >
+          Murti Details
+        </Text>
         <DetailRow label="Murti" value={booking.murti_name} />
+        {booking.murti_photo_uri ? (
+          <Image
+            source={{ uri: booking.murti_photo_uri }}
+            style={styles.murtiPhoto}
+            resizeMode="contain"
+          />
+        ) : null}
 
         <Divider style={styles.divider} />
 
-        <Text style={styles.sectionTitle}>Payment Details</Text>
+        <Text
+          variant="titleMedium"
+          style={{ color: theme.colors.primary, marginBottom: spacing.sm }}
+        >
+          Payment Details
+        </Text>
         <DetailRow label="Total" value={formatCurrency(booking.price)} />
         <DetailRow label="Advance" value={formatCurrency(booking.advance)} />
         <DetailRow
@@ -152,13 +184,20 @@ export default function BookingDetailsScreen() {
         {booking.notes ? (
           <>
             <Divider style={styles.divider} />
-            <Text style={styles.sectionTitle}>Notes</Text>
-            <Text style={styles.notes}>{booking.notes}</Text>
+            <Text
+              variant="titleMedium"
+              style={{ color: theme.colors.primary, marginBottom: spacing.sm }}
+            >
+              Notes
+            </Text>
+            <Text variant="bodyLarge" style={{ color: theme.colors.onSurface }}>
+              {booking.notes}
+            </Text>
           </>
         ) : null}
 
         <BookingActions
-          onViewReceipt={() => viewReceipt(booking)}
+          onViewReceipt={handleViewReceipt}
           onDownloadPdf={() => downloadPdf(booking)}
           onShareWhatsApp={() => shareOnWhatsApp(booking)}
           onEdit={() => router.push(`/(app)/booking/edit/${booking.id}`)}
@@ -170,11 +209,7 @@ export default function BookingDetailsScreen() {
           markDeliveredLoading={markDelivered.isPending}
         />
 
-        <AppButton
-          variant="outline"
-          icon="arrow-left"
-          onPress={handleBack}
-        >
+        <AppButton variant="outline" icon="arrow-left" onPress={handleBack}>
           Back
         </AppButton>
       </ScrollView>
@@ -192,35 +227,24 @@ export default function BookingDetailsScreen() {
 
 const styles = StyleSheet.create({
   scroll: {
-    padding: 16,
-    paddingBottom: 32,
-  },
-  sectionTitle: {
-    fontSize: 20,
-    fontWeight: '800',
-    color: colors.royalRed,
-    marginBottom: 8,
-    letterSpacing: 0.3,
+    padding: spacing.md,
+    paddingBottom: spacing.xl,
   },
   row: {
-    fontSize: 18,
-    marginVertical: 4,
-  },
-  label: {
-    color: colors.textSecondary,
-  },
-  value: {
-    fontWeight: '600',
-    color: colors.textPrimary,
-  },
-  highlight: {
-    color: colors.deepSaffron,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: spacing.sm,
+    gap: spacing.md,
   },
   divider: {
-    marginVertical: 16,
+    marginVertical: spacing.md,
   },
-  notes: {
-    fontSize: 16,
-    color: colors.black,
+  murtiPhoto: {
+    width: '100%',
+    height: 200,
+    borderRadius: radius.md,
+    marginTop: spacing.sm,
+    backgroundColor: colors.warmIvory,
   },
 });

@@ -1,9 +1,51 @@
 import { supabase } from '@/lib/supabase';
 import { Booking, BookingFormData } from '@/types/booking';
+import { normalizeMobile } from '@/features/telecalling/utils/phoneNormalize';
 import {
   DEFAULT_MURTI_NAME,
   GANESH_CHATURTHI_DELIVERY_DATE,
 } from '../constants';
+import {
+  persistMurtiPhoto,
+  removeMurtiPhoto,
+} from '../utils/murtiPhotoStorage';
+
+export const DUPLICATE_BOOKING_MESSAGE =
+  'Duplicate entry not allowed. This contact already has a booking.';
+
+function isDuplicateMobileConstraintError(error: {
+  code?: string;
+  message?: string;
+}): boolean {
+  if (error.code !== '23505') return false;
+  const message = error.message ?? '';
+  return /vendor_mobile|bookings_vendor_mobile|mobile/i.test(message);
+}
+
+/** Returns true if this vendor already has a booking for the same mobile number. */
+export async function bookingExistsForMobile(mobile: string): Promise<boolean> {
+  const normalized = normalizeMobile(mobile);
+  if (!normalized) return false;
+
+  const { data, error } = await supabase
+    .from('bookings')
+    .select('id, mobile')
+    .ilike('mobile', `%${normalized}%`)
+    .limit(100);
+
+  if (error) throw error;
+
+  return (data ?? []).some(
+    (row) => normalizeMobile(String(row.mobile ?? '')) === normalized
+  );
+}
+
+export async function assertNoDuplicateMobile(mobile: string): Promise<void> {
+  const exists = await bookingExistsForMobile(mobile);
+  if (exists) {
+    throw new Error(DUPLICATE_BOOKING_MESSAGE);
+  }
+}
 
 export async function fetchNextBookingNumber(): Promise<string> {
   const { data, error } = await supabase.rpc('get_next_booking_number');
@@ -15,6 +57,8 @@ export async function createBooking(
   formData: BookingFormData,
   bookingNumber: string
 ): Promise<Booking> {
+  await assertNoDuplicateMobile(formData.mobile);
+
   const pending = formData.price - formData.advance;
 
   const { data, error } = await supabase
@@ -38,8 +82,25 @@ export async function createBooking(
     .select()
     .single();
 
-  if (error) throw error;
-  return data;
+  if (error) {
+    if (isDuplicateMobileConstraintError(error)) {
+      throw new Error(DUPLICATE_BOOKING_MESSAGE);
+    }
+    throw error;
+  }
+
+  const booking = data as Booking;
+  const pendingPhoto = formData.murti_photo_uri;
+  if (!pendingPhoto) return booking;
+
+  try {
+    const storedUri = await persistMurtiPhoto(booking.id, pendingPhoto);
+    return updateBooking(booking.id, { murti_photo_uri: storedUri });
+  } catch (photoError) {
+    // Booking is saved; keep the captured URI so WhatsApp can still attach it.
+    console.warn('Failed to persist murti photo', photoError);
+    return { ...booking, murti_photo_uri: pendingPhoto };
+  }
 }
 
 export async function updateBooking(
@@ -160,6 +221,11 @@ export async function markDelivered(
 }
 
 export async function deleteBooking(id: string): Promise<void> {
+  const existing = await fetchBookingById(id).catch(() => null);
+  if (existing?.murti_photo_uri) {
+    await removeMurtiPhoto(existing.murti_photo_uri);
+  }
+
   const { error } = await supabase.from('bookings').delete().eq('id', id);
   if (error) throw error;
 }
@@ -169,6 +235,22 @@ export async function updateBookingFromForm(
   formData: BookingFormData
 ): Promise<Booking> {
   const pending = formData.price - formData.advance;
+  const existing = await fetchBookingById(id);
+
+  let murtiPhotoUri = existing.murti_photo_uri;
+  const nextPhoto = formData.murti_photo_uri;
+
+  if (nextPhoto === null || nextPhoto === '') {
+    if (existing.murti_photo_uri) {
+      await removeMurtiPhoto(existing.murti_photo_uri);
+    }
+    murtiPhotoUri = null;
+  } else if (nextPhoto && nextPhoto !== existing.murti_photo_uri) {
+    if (existing.murti_photo_uri) {
+      await removeMurtiPhoto(existing.murti_photo_uri);
+    }
+    murtiPhotoUri = await persistMurtiPhoto(id, nextPhoto);
+  }
 
   return updateBooking(id, {
     customer_name: formData.customer_name,
@@ -179,5 +261,6 @@ export async function updateBookingFromForm(
     pending,
     payment_mode: formData.payment_mode || null,
     notes: formData.notes || null,
+    murti_photo_uri: murtiPhotoUri,
   });
 }

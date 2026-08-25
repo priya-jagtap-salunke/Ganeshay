@@ -9,6 +9,7 @@ import { AppInput } from '@/components/ui/AppInput';
 import { AppDatePicker } from '@/components/ui/AppDatePicker';
 import { AppSelect } from '@/components/ui/AppSelect';
 import { AppButton } from '@/components/ui/AppButton';
+import { MurtiPhotoPicker } from './MurtiPhotoPicker';
 import { formatCurrency } from '@/utils/currency';
 import { getTodayString } from '@/utils/dates';
 import { colors } from '@/theme/colors';
@@ -39,6 +40,7 @@ export function getEmptyBookingDefaults(): Partial<BookingSchemaType> {
     advance: 0,
     payment_mode: undefined,
     notes: '',
+    murti_photo_uri: null,
   };
 }
 
@@ -171,6 +173,20 @@ export function BookingForm({
               value={value}
               options={PAYMENT_MODES}
               onChange={onChange}
+            />
+          )}
+        />
+      </View>
+
+      <View style={[styles.formCard, shadows.sm as ViewStyle]}>
+        <SectionTitle title="Murti Photo" />
+        <Controller
+          control={control}
+          name="murti_photo_uri"
+          render={({ field: { onChange, value } }) => (
+            <MurtiPhotoPicker
+              photoUri={value}
+              onPhotoChange={onChange}
             />
           )}
         />
