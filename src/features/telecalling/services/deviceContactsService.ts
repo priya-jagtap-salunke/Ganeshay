@@ -6,6 +6,17 @@ import {
   normalizeMobile,
 } from '../utils/phoneNormalize';
 
+/** Fields safe on both platforms. Never request Note on iOS — it needs a special
+ * Apple entitlement; without it getContactsAsync fails and returns null. */
+const CONTACT_READ_FIELDS: Contacts.FieldType[] = [
+  Contacts.Fields.PhoneNumbers,
+  Contacts.Fields.Name,
+  Contacts.Fields.FirstName,
+  Contacts.Fields.MiddleName,
+  Contacts.Fields.LastName,
+  Contacts.Fields.Company,
+];
+
 export function isDeviceContactsSupported(): boolean {
   return Platform.OS === 'android' || Platform.OS === 'ios';
 }
@@ -23,6 +34,51 @@ async function openAppSettings(): Promise<void> {
   }
 }
 
+function showContactsPermissionDeniedAlert(): void {
+  Alert.alert(
+    'Contacts Permission',
+    'Allow Contacts access to import numbers from your phone and save new ones. You can enable it in App Settings → Permissions (or Privacy → Contacts on iPhone).',
+    [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Open Settings',
+        onPress: () => {
+          openAppSettings().catch(() => undefined);
+        },
+      },
+    ]
+  );
+}
+
+/**
+ * True when the OS granted full or limited (iOS 18+) contacts access.
+ */
+function hasContactsAccess(
+  response: Contacts.PermissionResponse
+): boolean {
+  if (response.granted) return true;
+  // iOS 18+ may expose limited access on newer native modules.
+  const privileges = (
+    response as Contacts.PermissionResponse & {
+      accessPrivileges?: 'all' | 'limited' | 'none';
+    }
+  ).accessPrivileges;
+  if (Platform.OS === 'ios' && privileges === 'limited') {
+    return true;
+  }
+  return false;
+}
+
+function getAccessPrivileges(
+  response: Contacts.PermissionResponse
+): 'all' | 'limited' | 'none' | undefined {
+  return (
+    response as Contacts.PermissionResponse & {
+      accessPrivileges?: 'all' | 'limited' | 'none';
+    }
+  ).accessPrivileges;
+}
+
 export async function ensureContactsPermission(): Promise<boolean> {
   if (!isDeviceContactsSupported()) {
     return false;
@@ -30,24 +86,17 @@ export async function ensureContactsPermission(): Promise<boolean> {
 
   try {
     const current = await Contacts.getPermissionsAsync();
-    if (current.granted) return true;
+    if (hasContactsAccess(current)) return true;
+
+    if (current.status === Contacts.PermissionStatus.DENIED && !current.canAskAgain) {
+      showContactsPermissionDeniedAlert();
+      return false;
+    }
 
     const requested = await Contacts.requestPermissionsAsync();
-    if (requested.granted) return true;
+    if (hasContactsAccess(requested)) return true;
 
-    Alert.alert(
-      'Contacts Permission',
-      'Allow Contacts access to import numbers from your phone and save new ones. You can enable it in App Settings → Permissions.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Open Settings',
-          onPress: () => {
-            openAppSettings().catch(() => undefined);
-          },
-        },
-      ]
-    );
+    showContactsPermissionDeniedAlert();
     return false;
   } catch (error) {
     const message =
@@ -76,13 +125,60 @@ function contactDisplayName(contact: Contacts.Contact): string {
 }
 
 /**
+ * Fetch all device contacts (paginated). pageSize 0 = all on both platforms.
+ * Defensive pagination covers older native builds that still page.
+ */
+async function fetchAllDeviceContacts(
+  fields: Contacts.FieldType[]
+): Promise<Contacts.Contact[]> {
+  const pageSize = 500;
+  let pageOffset = 0;
+  const all: Contacts.Contact[] = [];
+
+  // First try “all contacts” in one call (supported by expo-contacts).
+  const first = await Contacts.getContactsAsync({
+    fields,
+    pageSize: 0,
+    sort: Contacts.SortTypes.FirstName,
+  });
+
+  if (first && Array.isArray(first.data)) {
+    if (!first.hasNextPage) {
+      return first.data;
+    }
+    all.push(...first.data);
+    pageOffset = first.data.length;
+  }
+
+  // Paginate remainder if the native layer still pages.
+  while (true) {
+    const page = await Contacts.getContactsAsync({
+      fields,
+      pageSize,
+      pageOffset,
+      sort: Contacts.SortTypes.FirstName,
+    });
+
+    if (!page || !Array.isArray(page.data)) {
+      break;
+    }
+
+    all.push(...page.data);
+
+    if (!page.hasNextPage || page.data.length === 0) {
+      break;
+    }
+    pageOffset += page.data.length;
+  }
+
+  return all;
+}
+
+/**
  * Build a Set of normalized (last-10-digit) mobiles already on the device.
  */
 export async function getExistingDeviceMobileSet(): Promise<Set<string>> {
-  const { data } = await Contacts.getContactsAsync({
-    fields: [Contacts.Fields.PhoneNumbers],
-    pageSize: 5000,
-  });
+  const data = await fetchAllDeviceContacts([Contacts.Fields.PhoneNumbers]);
 
   const existing = new Set<string>();
   for (const contact of data) {
@@ -109,6 +205,7 @@ export interface LoadDeviceContactOptionsResult {
   options: DeviceContactOption[];
   skippedInvalid: number;
   skippedDuplicateOnDevice: number;
+  accessLimited: boolean;
 }
 
 /**
@@ -125,22 +222,28 @@ export async function loadDeviceContactOptions(): Promise<LoadDeviceContactOptio
   const granted = await ensureContactsPermission();
   if (!granted) {
     throw new Error(
-      'Contacts permission is required to import numbers from your phone.'
+      'Contacts permission is required to import numbers from your phone. Enable it in Settings and try again.'
     );
   }
 
-  const { data } = await Contacts.getContactsAsync({
-    fields: [
-      Contacts.Fields.PhoneNumbers,
-      Contacts.Fields.Name,
-      Contacts.Fields.FirstName,
-      Contacts.Fields.MiddleName,
-      Contacts.Fields.LastName,
-      Contacts.Fields.Company,
-      Contacts.Fields.Note,
-    ],
-    pageSize: 5000,
-  });
+  let accessLimited = false;
+  try {
+    const perm = await Contacts.getPermissionsAsync();
+    accessLimited = getAccessPrivileges(perm) === 'limited';
+  } catch {
+    // Optional metadata — ignore.
+  }
+
+  let data: Contacts.Contact[];
+  try {
+    data = await fetchAllDeviceContacts(CONTACT_READ_FIELDS);
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : 'Could not read phone contacts';
+    throw new Error(
+      `${message}. If this persists on iPhone, open Settings → Ganeshay → Contacts and allow access, then reopen the app.`
+    );
+  }
 
   const byMobile = new Map<string, DeviceContactOption>();
   let skippedInvalid = 0;
@@ -148,7 +251,6 @@ export async function loadDeviceContactOptions(): Promise<LoadDeviceContactOptio
 
   for (const contact of data) {
     const name = contactDisplayName(contact);
-    const note = contact.note?.trim() || null;
     const phones = contact.phoneNumbers ?? [];
 
     for (const phone of phones) {
@@ -169,7 +271,7 @@ export async function loadDeviceContactOptions(): Promise<LoadDeviceContactOptio
         key: mobile,
         name: name || `Contact ${mobile}`,
         mobile,
-        notes: note,
+        notes: null,
       });
     }
   }
@@ -182,6 +284,7 @@ export async function loadDeviceContactOptions(): Promise<LoadDeviceContactOptio
     options,
     skippedInvalid,
     skippedDuplicateOnDevice,
+    accessLimited,
   };
 }
 
@@ -211,6 +314,7 @@ export interface SyncToDeviceResult {
 /**
  * Add contacts to the device address book when the mobile is not already present.
  * Duplicate detection: normalize to last 10 digits and compare against all device phone numbers.
+ * Notes are omitted on iOS (requires a special Apple entitlement).
  */
 export async function syncContactsToDevice(
   contacts: SyncContactInput[]
@@ -246,7 +350,7 @@ export async function syncContactsToDevice(
 
     try {
       const displayName = contact.name.trim() || mobile;
-      await Contacts.addContactAsync({
+      const payload: Contacts.Contact = {
         contactType: Contacts.ContactTypes.Person,
         name: displayName,
         firstName: displayName,
@@ -256,8 +360,12 @@ export async function syncContactsToDevice(
             number: `+91${mobile}`,
           },
         ],
-        ...(contact.notes?.trim() ? { note: contact.notes.trim() } : {}),
-      });
+      };
+      // Contact Notes entitlement is not configured — only set notes on Android.
+      if (Platform.OS === 'android' && contact.notes?.trim()) {
+        payload.note = contact.notes.trim();
+      }
+      await Contacts.addContactAsync(payload);
       existing.add(mobile);
       added += 1;
     } catch {

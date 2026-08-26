@@ -52,15 +52,21 @@ workflows:
             "$EXPO_PUBLIC_SUPABASE_ANON_KEY" > "$CM_BUILD_DIR/.env"
           echo "Wrote .env for Expo public config."
 
-      # Nuclear unblock: overwrite Expo icons with jimp-compact-generated PNGs on the
-      # builder disk so prebuild never reads historical corrupt 76-byte git blobs /
-      # cached checkouts. Then verify and name any failing file before prebuild.
-      - name: Regenerate Expo PNGs with jimp (solid)
+      # Keep the real Ganeshay brand assets from git; re-encode for jimp/Expo
+      # prebuild CRC. NEVER use --solid here — that replaces the logo with a
+      # flat placeholder circle.
+      - name: Re-encode Expo brand PNGs (keep real logo)
         script: |
           set -e
-          node scripts/create-assets.mjs --solid --force
-          ls -la assets/*.png
+          node scripts/create-assets.mjs --force
+          ls -la assets/*.png assets/branding/*.png
           wc -c assets/icon.png assets/splash.png assets/adaptive-icon.png assets/favicon.png
+          # Guard: solid placeholders were ~9KB; real logo is hundreds of KB
+          SIZE=$(wc -c < assets/icon.png | tr -d ' ')
+          if [ "$SIZE" -lt 50000 ]; then
+            echo "ERROR: icon.png is only ${SIZE} bytes — logo looks like a placeholder"
+            exit 1
+          fi
 
       - name: Verify Expo PNG assets
         script: |
@@ -168,10 +174,17 @@ workflows:
             "$EXPO_PUBLIC_SUPABASE_URL" \
             "$EXPO_PUBLIC_SUPABASE_ANON_KEY" > "$CM_BUILD_DIR/.env"
 
-      - name: Regenerate Expo PNGs with jimp (solid)
+      - name: Re-encode Expo brand PNGs (keep real logo)
         script: |
           set -e
-          node scripts/create-assets.mjs --solid --force
+          node scripts/create-assets.mjs --force
+          ls -la assets/*.png assets/branding/*.png
+          wc -c assets/icon.png assets/splash.png assets/adaptive-icon.png assets/favicon.png
+          SIZE=$(wc -c < assets/icon.png | tr -d ' ')
+          if [ "$SIZE" -lt 50000 ]; then
+            echo "ERROR: icon.png is only ${SIZE} bytes — logo looks like a placeholder"
+            exit 1
+          fi
 
       - name: Verify Expo PNG assets
         script: |

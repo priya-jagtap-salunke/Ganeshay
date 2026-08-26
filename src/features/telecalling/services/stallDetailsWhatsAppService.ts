@@ -64,15 +64,21 @@ async function shareViaReactNativeShare(params: {
   url?: string;
   type?: string;
   filename?: string;
+  /**
+   * Android: omit after openDeviceWhatsAppApp so Conversation isn't restarted
+   * (restart clears the prefilled draft).
+   */
+  targetPhone?: boolean;
 }): Promise<void> {
   const Share = (await import('react-native-share')).default;
   const social = whatsAppSocialForKind(Share, params.appKind);
+  const targetPhone = params.targetPhone !== false;
 
   await Share.shareSingle({
     title: 'Stall Enquiry Details',
     message: params.message,
     social,
-    whatsAppNumber: params.phone,
+    ...(targetPhone ? { whatsAppNumber: params.phone } : {}),
     ...(params.url
       ? {
           url: normalizeShareUrl(params.url),
@@ -94,6 +100,7 @@ function bannerFilename(type: string): string {
  * Android reliably drops captions when shareSingle includes an image.
  * Open the customer chat with the pre-drafted text first, then attach the
  * banner into that same chat via shareSingle (image-only).
+ * Omit whatsAppNumber on the first media attach so Conversation isn't restarted.
  */
 async function shareAndroidMessageThenBanner(params: {
   phone: string;
@@ -105,14 +112,28 @@ async function shareAndroidMessageThenBanner(params: {
   await openDeviceWhatsAppApp(params.phone, params.message, params.appKind);
   await delay(ANDROID_STEP_DELAY_MS);
 
-  await shareViaReactNativeShare({
-    message: '',
-    phone: params.phone,
-    appKind: params.appKind,
-    url: params.banner.uri,
-    type: params.banner.type,
-    filename: bannerFilename(params.banner.type),
-  });
+  try {
+    await shareViaReactNativeShare({
+      message: '',
+      phone: params.phone,
+      appKind: params.appKind,
+      url: params.banner.uri,
+      type: params.banner.type,
+      filename: bannerFilename(params.banner.type),
+      targetPhone: false,
+    });
+  } catch (attachError) {
+    if (isUserCancelledShare(attachError)) throw attachError;
+    await shareViaReactNativeShare({
+      message: '',
+      phone: params.phone,
+      appKind: params.appKind,
+      url: params.banner.uri,
+      type: params.banner.type,
+      filename: bannerFilename(params.banner.type),
+      targetPhone: true,
+    });
+  }
 
   if (params.pdfUri) {
     await delay(ANDROID_STEP_DELAY_MS);
@@ -124,11 +145,49 @@ async function shareAndroidMessageThenBanner(params: {
         url: params.pdfUri,
         type: 'application/pdf',
         filename: 'Ganesha_Murties_Catalog.pdf',
+        targetPhone: false,
       });
     } catch (pdfError) {
       if (isUserCancelledShare(pdfError)) return;
       console.warn('Murties PDF follow-up share failed', pdfError);
     }
+  }
+}
+
+/**
+ * Android message + PDF only (no banner): continuous draft — open chat, delay,
+ * attach PDF without restarting Conversation. No mid-flow Attach PDF alert.
+ */
+async function shareAndroidMessageThenPdf(params: {
+  phone: string;
+  message: string;
+  appKind: WhatsAppAppKind;
+  pdfUri: string;
+}): Promise<void> {
+  await openDeviceWhatsAppApp(params.phone, params.message, params.appKind);
+  await delay(ANDROID_STEP_DELAY_MS);
+
+  try {
+    await shareViaReactNativeShare({
+      message: params.message,
+      phone: params.phone,
+      appKind: params.appKind,
+      url: params.pdfUri,
+      type: 'application/pdf',
+      filename: 'Ganesha_Murties_Catalog.pdf',
+      targetPhone: false,
+    });
+  } catch (attachError) {
+    if (isUserCancelledShare(attachError)) throw attachError;
+    await shareViaReactNativeShare({
+      message: params.message,
+      phone: params.phone,
+      appKind: params.appKind,
+      url: params.pdfUri,
+      type: 'application/pdf',
+      filename: 'Ganesha_Murties_Catalog.pdf',
+      targetPhone: true,
+    });
   }
 }
 
@@ -274,7 +333,16 @@ export async function shareStallDetailsOnWhatsApp(
     // Message only (no banner): open chat with prefilled text.
     if (!shareableBanner) {
       if (shareablePdfUri) {
-        // Prefer chat text first, then PDF into the same chat.
+        if (Platform.OS === 'android') {
+          await shareAndroidMessageThenPdf({
+            phone,
+            message,
+            appKind,
+            pdfUri: shareablePdfUri,
+          });
+          return;
+        }
+
         await openDeviceWhatsAppApp(phone, message, appKind);
         await delay(ANDROID_STEP_DELAY_MS);
         await shareViaReactNativeShare({

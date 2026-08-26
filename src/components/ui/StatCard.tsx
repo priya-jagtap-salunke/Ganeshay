@@ -43,7 +43,12 @@ export function StatCard({
       style={[
         styles.wrapper,
         compact && styles.wrapperCompact,
-        compact && width != null && { width, minWidth: width, marginHorizontal: 0 },
+        width != null && {
+          width,
+          minWidth: width,
+          margin: 0,
+          flex: 0,
+        },
         elevation.level1 as ViewStyle,
         {
           backgroundColor: surface,
@@ -78,7 +83,7 @@ export function StatCard({
           {value}
         </Text>
         <Text
-          variant="labelMedium"
+          variant={compact ? 'labelMedium' : 'bodyMedium'}
           style={[
             styles.title,
             { color: theme.colors.onSurfaceVariant },
@@ -119,10 +124,11 @@ const styles = StyleSheet.create({
     width: 2,
   },
   card: {
-    paddingVertical: spacing.md,
+    paddingVertical: spacing.lg,
     paddingHorizontal: spacing.md,
     alignItems: 'center',
-    minHeight: 132,
+    minHeight: 148,
+    justifyContent: 'center',
   },
   cardCompact: {
     paddingTop: spacing.xs,

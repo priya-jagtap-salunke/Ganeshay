@@ -26,11 +26,12 @@ export default function OverviewScreen() {
   const statsReady = stats != null;
   const statCount = (n: number | undefined) => (statsReady ? (n ?? 0) : '—');
 
-  const gridGap = spacing.xs;
-  const horizontalPad = spacing.md;
-  const panelInset = spacing.xs;
-  const statsColumns = 3;
-  const innerWidth = screenWidth - horizontalPad * 2 - panelInset * 2;
+  // 2-column layout: readable type + cards that use available width
+  const gridGap = spacing.sm;
+  const sectionMargin = spacing.md;
+  const panelInset = spacing.sm;
+  const statsColumns = 2;
+  const innerWidth = screenWidth - sectionMargin * 2 - panelInset * 2;
   const statCardWidth = Math.floor(
     (innerWidth - gridGap * (statsColumns - 1)) / statsColumns
   );
@@ -48,7 +49,6 @@ export default function OverviewScreen() {
           subtitle="Today's snapshot"
           icon="view-dashboard-outline"
           contained
-          dense
         >
           <View style={styles.statsGrid}>
             <StatCard
@@ -57,7 +57,6 @@ export default function OverviewScreen() {
               icon="calendar-check"
               accentColor={theme.colors.primary}
               index={0}
-              compact
               width={statCardWidth}
             />
             <StatCard
@@ -66,7 +65,6 @@ export default function OverviewScreen() {
               icon="calendar-multiple-check"
               accentColor={theme.colors.primary}
               index={1}
-              compact
               width={statCardWidth}
             />
             <StatCard
@@ -75,7 +73,6 @@ export default function OverviewScreen() {
               icon="cash-multiple"
               accentColor={theme.colors.tertiary}
               index={2}
-              compact
               width={statCardWidth}
             />
             <StatCard
@@ -84,7 +81,6 @@ export default function OverviewScreen() {
               icon="clock-outline"
               accentColor={theme.colors.tertiary}
               index={3}
-              compact
               width={statCardWidth}
             />
             <StatCard
@@ -93,7 +89,6 @@ export default function OverviewScreen() {
               icon="truck-check-outline"
               accentColor={colors.success}
               index={4}
-              compact
               width={statCardWidth}
             />
           </View>
@@ -114,8 +109,8 @@ const styles = StyleSheet.create({
   statsGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    justifyContent: 'center',
-    alignItems: 'flex-start',
-    gap: spacing.xs,
+    justifyContent: 'flex-start',
+    alignItems: 'stretch',
+    gap: spacing.sm,
   },
 });

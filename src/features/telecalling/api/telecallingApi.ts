@@ -66,6 +66,25 @@ async function requireSession(): Promise<void> {
   }
 }
 
+/**
+ * Keep one row per normalized mobile (newest first when ordered desc).
+ */
+function uniqueByMobile(
+  contacts: TelecallingContact[]
+): TelecallingContact[] {
+  const seen = new Set<string>();
+  const unique: TelecallingContact[] = [];
+  for (const contact of contacts) {
+    const mobile = normalizeMobile(contact.mobile);
+    if (!mobile || seen.has(mobile)) continue;
+    seen.add(mobile);
+    unique.push(
+      mobile === contact.mobile ? contact : { ...contact, mobile }
+    );
+  }
+  return unique;
+}
+
 export async function fetchTelecallingContacts(): Promise<TelecallingContact[]> {
   const configError = getSupabaseConfigError();
   if (configError) throw new Error(configError);
@@ -76,7 +95,9 @@ export async function fetchTelecallingContacts(): Promise<TelecallingContact[]> 
     .order('created_at', { ascending: false });
 
   if (error) throw mapTelecallingError(error);
-  return ((data ?? []) as TelecallingContact[]).map(mapContactRow);
+  return uniqueByMobile(
+    ((data ?? []) as TelecallingContact[]).map(mapContactRow)
+  );
 }
 
 export async function createTelecallingContact(
@@ -91,6 +112,19 @@ export async function createTelecallingContact(
     throw new Error('Enter a valid 10-digit Indian mobile number.');
   }
 
+  const { data: existing, error: existingError } = await supabase
+    .from('telecalling_contacts')
+    .select(CONTACT_SELECT)
+    .eq('mobile', mobile)
+    .maybeSingle();
+
+  if (existingError) throw mapTelecallingError(existingError);
+  if (existing) {
+    throw new Error(
+      `This mobile number (${mobile}) is already in your tele-calling list.`
+    );
+  }
+
   const { data, error } = await supabase
     .from('telecalling_contacts')
     .insert({
@@ -103,17 +137,31 @@ export async function createTelecallingContact(
     .select(CONTACT_SELECT)
     .single();
 
-  if (error) throw mapTelecallingError(error);
+  if (error) {
+    const lower = getErrorMessage(error).toLowerCase();
+    if (
+      lower.includes('unique') ||
+      lower.includes('duplicate') ||
+      lower.includes('telecalling_contacts_vendor_mobile')
+    ) {
+      throw new Error(
+        `This mobile number (${mobile}) is already in your tele-calling list.`
+      );
+    }
+    throw mapTelecallingError(error);
+  }
   return mapContactRow(data as TelecallingContact);
 }
 
 export interface ImportContactsResult {
   inserted: TelecallingContact[];
+  /** Already in DB + duplicates within this batch (after normalize). */
   skippedExisting: number;
 }
 
 /**
- * Insert many contacts; skips mobiles already stored for this vendor.
+ * Insert many contacts; skips mobiles already stored for this vendor and
+ * dedupes within the batch by normalized 10-digit mobile.
  */
 export async function importTelecallingContacts(
   inputs: CreateTelecallingContactInput[]
@@ -140,10 +188,13 @@ export async function importTelecallingContacts(
   }
 
   const byMobile = new Map<string, (typeof prepared)[number]>();
+  let skippedDuplicateInBatch = 0;
   for (const row of prepared) {
-    if (!byMobile.has(row.mobile)) {
-      byMobile.set(row.mobile, row);
+    if (byMobile.has(row.mobile)) {
+      skippedDuplicateInBatch += 1;
+      continue;
     }
+    byMobile.set(row.mobile, row);
   }
   const uniqueRows = [...byMobile.values()];
 
@@ -156,10 +207,13 @@ export async function importTelecallingContacts(
   if (existingError) throw mapTelecallingError(existingError);
 
   const existingSet = new Set(
-    (existingRows ?? []).map((row: { mobile: string }) => row.mobile)
+    (existingRows ?? []).map((row: { mobile: string }) =>
+      normalizeMobile(row.mobile)
+    )
   );
   const toInsert = uniqueRows.filter((row) => !existingSet.has(row.mobile));
-  const skippedExisting = uniqueRows.length - toInsert.length;
+  const skippedAlreadyInDb = uniqueRows.length - toInsert.length;
+  const skippedExisting = skippedAlreadyInDb + skippedDuplicateInBatch;
 
   if (!toInsert.length) {
     return { inserted: [], skippedExisting };
@@ -170,7 +224,35 @@ export async function importTelecallingContacts(
     .insert(toInsert)
     .select(CONTACT_SELECT);
 
-  if (error) throw mapTelecallingError(error);
+  if (error) {
+    const lower = getErrorMessage(error).toLowerCase();
+    if (
+      lower.includes('unique') ||
+      lower.includes('duplicate') ||
+      lower.includes('telecalling_contacts_vendor_mobile')
+    ) {
+      // Race or partial conflict — insert one-by-one skipping dupes.
+      const inserted: TelecallingContact[] = [];
+      let racedSkips = 0;
+      for (const row of toInsert) {
+        const { data: one, error: oneError } = await supabase
+          .from('telecalling_contacts')
+          .insert(row)
+          .select(CONTACT_SELECT)
+          .maybeSingle();
+        if (oneError || !one) {
+          racedSkips += 1;
+          continue;
+        }
+        inserted.push(mapContactRow(one as TelecallingContact));
+      }
+      return {
+        inserted,
+        skippedExisting: skippedExisting + racedSkips,
+      };
+    }
+    throw mapTelecallingError(error);
+  }
   return {
     inserted: ((data ?? []) as TelecallingContact[]).map(mapContactRow),
     skippedExisting,

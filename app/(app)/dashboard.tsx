@@ -13,7 +13,6 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter, type Href } from 'expo-router';
 import { ScreenContainer } from '@/components/layout/ScreenContainer';
-import { BrandLogo } from '@/components/ui/BrandLogo';
 import { BusinessLogo } from '@/components/ui/BusinessLogo';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { BookingCard } from '@/features/bookings/components/BookingCard';
@@ -45,15 +44,11 @@ const vendorTitleFontFamily = Platform.select({
 
 const HOME_LOGO_SIZE = 64;
 
-function isRenderableBusinessLogo(uri: string | null | undefined): boolean {
-  if (!uri) return false;
-  return (
-    /^data:image\/(jpeg|jpg|png|webp|gif);/i.test(uri) ||
-    uri.startsWith('file://') ||
-    uri.startsWith('http://') ||
-    uri.startsWith('https://') ||
-    uri.startsWith('content://')
-  );
+function withAlpha(hex: string, alphaHex: string): string {
+  if (hex.startsWith('#') && (hex.length === 7 || hex.length === 9)) {
+    return `${hex.slice(0, 7)}${alphaHex}`;
+  }
+  return hex;
 }
 
 interface QuickActionProps {
@@ -63,13 +58,6 @@ interface QuickActionProps {
   color: string;
   width: number;
   emphasized?: boolean;
-}
-
-function withAlpha(hex: string, alphaHex: string): string {
-  if (hex.startsWith('#') && (hex.length === 7 || hex.length === 9)) {
-    return `${hex.slice(0, 7)}${alphaHex}`;
-  }
-  return hex;
 }
 
 function QuickAction({
@@ -149,7 +137,7 @@ export default function DashboardScreen() {
   const theme = useTheme();
   const { width: screenWidth } = useWindowDimensions();
   const { data: todayBookings } = useTodayBookings();
-  const { businessName, businessLogo } = useBusinessDocumentSettings();
+  const { businessName } = useBusinessDocumentSettings();
 
   const gridGap = spacing.sm;
   const horizontalPad = spacing.md;
@@ -164,7 +152,6 @@ export default function DashboardScreen() {
   const hasTodayBookings = todayCount > 0;
   const year = new Date().getFullYear();
   const vendorTitle = businessName?.trim() || 'My Ganapati Stall';
-  const hasVendorLogo = isRenderableBusinessLogo(businessLogo);
 
   return (
     <ScreenContainer
@@ -202,19 +189,12 @@ export default function DashboardScreen() {
               <View style={styles.homeHeaderGoldEdge} pointerEvents="none" />
 
               <View style={styles.homeHeaderLogoRing}>
-                {hasVendorLogo ? (
-                  <BusinessLogo
-                    size={HOME_LOGO_SIZE}
-                    style={styles.homeHeaderLogo}
-                  />
-                ) : (
-                  <BrandLogo
-                    variant="icon"
-                    size={HOME_LOGO_SIZE}
-                    framed
-                    style={styles.homeHeaderLogo}
-                  />
-                )}
+                {/* Vendor logo when set; otherwise (or on load failure) Ganeshay BrandLogo */}
+                <BusinessLogo
+                  size={HOME_LOGO_SIZE}
+                  style={styles.homeHeaderLogo}
+                  showBrandFallback
+                />
               </View>
 
               <View style={styles.homeHeaderText}>

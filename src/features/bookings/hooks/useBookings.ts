@@ -83,9 +83,12 @@ export function useDeleteBooking() {
 
   return useMutation({
     mutationFn: (id: string) => deleteBooking(id),
-    onSuccess: () => {
+    onSuccess: (_, id) => {
+      // Single source of truth: Supabase delete, then refresh every booking surface.
+      queryClient.removeQueries({ queryKey: ['booking', id] });
       queryClient.invalidateQueries({ queryKey: ['bookings'] });
       queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+      queryClient.invalidateQueries({ queryKey: ['reports'] });
     },
   });
 }

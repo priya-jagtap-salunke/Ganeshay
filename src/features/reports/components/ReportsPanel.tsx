@@ -7,12 +7,13 @@ import {
   Pressable,
   ScrollView,
 } from 'react-native';
-import { Text } from 'react-native-paper';
+import { Text, IconButton } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { AppButton } from '@/components/ui/AppButton';
 import { AppSelect } from '@/components/ui/AppSelect';
 import { LoadingOverlay } from '@/components/ui/LoadingOverlay';
+import { useDeleteBooking } from '@/features/bookings/hooks/useBookings';
 import { useYearBookings, useCustomerList, useYearExpenses } from '../hooks/useReports';
 import {
   buildYearlySummary,
@@ -131,47 +132,81 @@ function YearBookingRow({
   booking: Booking;
   onPress: () => void;
 }) {
+  const deleteBooking = useDeleteBooking();
+  const isDeleting =
+    deleteBooking.isPending && deleteBooking.variables === booking.id;
+
+  const handleDelete = () => {
+    Alert.alert(
+      'Delete Booking',
+      `Are you sure you want to delete ${booking.booking_number}? This cannot be undone.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: () => {
+            deleteBooking.mutate(booking.id, {
+              onError: (err) => Alert.alert('Error', getErrorMessage(err)),
+            });
+          },
+        },
+      ]
+    );
+  };
+
   return (
-    <Pressable
-      onPress={onPress}
-      style={({ pressed }) => [styles.bookingRow, pressed && styles.pressed]}
-    >
-      <View style={styles.bookingHeader}>
-        <Text style={styles.bookingId}>{booking.booking_number}</Text>
-        <Text
-          style={[
-            styles.statusBadge,
-            booking.status === 'Delivered'
-              ? styles.statusDelivered
-              : styles.statusPending,
-          ]}
-        >
-          {booking.status}
+    <View style={styles.bookingRow}>
+      <IconButton
+        icon="delete-outline"
+        size={20}
+        iconColor={colors.error}
+        onPress={handleDelete}
+        disabled={isDeleting}
+        accessibilityLabel={`Delete booking ${booking.booking_number}`}
+        style={styles.bookingDeleteButton}
+      />
+      <Pressable
+        onPress={onPress}
+        style={({ pressed }) => [styles.bookingRowBody, pressed && styles.pressed]}
+      >
+        <View style={styles.bookingHeader}>
+          <Text style={styles.bookingId}>{booking.booking_number}</Text>
+          <Text
+            style={[
+              styles.statusBadge,
+              booking.status === 'Delivered'
+                ? styles.statusDelivered
+                : styles.statusPending,
+            ]}
+          >
+            {booking.status}
+          </Text>
+        </View>
+        <Text style={styles.customerName}>{booking.customer_name}</Text>
+        <Text style={styles.bookingMeta}>Mobile: {booking.mobile}</Text>
+        <Text style={styles.bookingMeta}>
+          Date: {formatReportDate(booking.booking_date)}
         </Text>
-      </View>
-      <Text style={styles.customerName}>{booking.customer_name}</Text>
-      <Text style={styles.bookingMeta}>Mobile: {booking.mobile}</Text>
-      <Text style={styles.bookingMeta}>
-        Date: {formatReportDate(booking.booking_date)}
-      </Text>
-      <View style={styles.amountRow}>
-        <Text style={styles.amountLabel}>Total</Text>
-        <Text style={styles.amountValue}>{formatCurrency(booking.price)}</Text>
-      </View>
-      <View style={styles.amountRow}>
-        <Text style={styles.amountLabel}>Advance</Text>
-        <Text style={styles.amountValue}>{formatCurrency(booking.advance)}</Text>
-      </View>
-      <View style={styles.amountRow}>
-        <Text style={styles.amountLabel}>Pending</Text>
-        <Text style={[styles.amountValue, styles.pendingValue]}>
-          {formatCurrency(booking.pending)}
-        </Text>
-      </View>
-      {booking.payment_mode ? (
-        <Text style={styles.bookingMeta}>Payment: {booking.payment_mode}</Text>
-      ) : null}
-    </Pressable>
+        <View style={styles.amountRow}>
+          <Text style={styles.amountLabel}>Total</Text>
+          <Text style={styles.amountValue}>{formatCurrency(booking.price)}</Text>
+        </View>
+        <View style={styles.amountRow}>
+          <Text style={styles.amountLabel}>Advance</Text>
+          <Text style={styles.amountValue}>{formatCurrency(booking.advance)}</Text>
+        </View>
+        <View style={styles.amountRow}>
+          <Text style={styles.amountLabel}>Pending</Text>
+          <Text style={[styles.amountValue, styles.pendingValue]}>
+            {formatCurrency(booking.pending)}
+          </Text>
+        </View>
+        {booking.payment_mode ? (
+          <Text style={styles.bookingMeta}>Payment: {booking.payment_mode}</Text>
+        ) : null}
+      </Pressable>
+    </View>
   );
 }
 
@@ -554,7 +589,18 @@ const styles = StyleSheet.create({
   bookingRow: {
     backgroundColor: colors.warmIvory,
     borderRadius: radius.md,
-    padding: spacing.sm + 2,
+    paddingVertical: spacing.sm + 2,
+    paddingRight: spacing.sm + 2,
+    paddingLeft: spacing.xs,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+  },
+  bookingDeleteButton: {
+    margin: 0,
+  },
+  bookingRowBody: {
+    flex: 1,
+    paddingLeft: spacing.xs,
   },
   customerRow: {
     backgroundColor: colors.warmIvory,

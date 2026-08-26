@@ -5,15 +5,10 @@ import {
   FlatList,
   Pressable,
   ActivityIndicator,
-} from 'react-native';
-import {
   Modal,
-  Portal,
-  Text,
-  Checkbox,
-  Searchbar,
-  useTheme,
-} from 'react-native-paper';
+  Alert,
+} from 'react-native';
+import { Text, Checkbox, Searchbar, IconButton } from 'react-native-paper';
 import { AppButton } from '@/components/ui/AppButton';
 import { EmptyState } from '@/components/ui/EmptyState';
 import {
@@ -36,18 +31,19 @@ export function DeviceContactsPickerModal({
   onDismiss,
   onConfirm,
 }: DeviceContactsPickerModalProps) {
-  const theme = useTheme();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [options, setOptions] = useState<DeviceContactOption[]>([]);
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
   const [query, setQuery] = useState('');
+  const [accessLimited, setAccessLimited] = useState(false);
 
   const resetState = useCallback(() => {
     setOptions([]);
     setSelectedKeys(new Set());
     setQuery('');
     setError(null);
+    setAccessLimited(false);
   }, []);
 
   useEffect(() => {
@@ -64,6 +60,13 @@ export function DeviceContactsPickerModal({
       .then((result) => {
         if (cancelled) return;
         setOptions(result.options);
+        setAccessLimited(result.accessLimited);
+        if (result.accessLimited && result.options.length === 0) {
+          Alert.alert(
+            'Limited Contacts access',
+            'iPhone only shared some contacts with Ganeshay. Open Settings → Ganeshay → Contacts and choose “Full Access”, or pick more contacts, then try again.'
+          );
+        }
       })
       .catch((err) => {
         if (cancelled) return;
@@ -119,171 +122,190 @@ export function DeviceContactsPickerModal({
   };
 
   return (
-    <Portal>
-      <Modal
-        visible={visible}
-        onDismiss={loading ? undefined : onDismiss}
-        contentContainerStyle={[
-          styles.sheet,
-          { backgroundColor: theme.colors.surface },
-        ]}
-      >
-        <Text variant="titleMedium" style={{ color: theme.colors.onSurface }}>
-          Select phone contacts
-        </Text>
-        <Text
-          variant="bodySmall"
-          style={{
-            color: theme.colors.onSurfaceVariant,
-            marginTop: spacing.xs,
-            marginBottom: spacing.sm,
-          }}
-        >
-          Choose who to add to tele-calling. Only selected contacts are imported.
-        </Text>
+    <Modal
+      visible={visible}
+      animationType="slide"
+      onRequestClose={loading ? undefined : onDismiss}
+    >
+      <View style={styles.container}>
+        <View style={styles.header}>
+          <Text style={styles.title}>Select phone contacts</Text>
+          <IconButton
+            icon="close"
+            onPress={loading ? undefined : onDismiss}
+            iconColor={colors.white}
+            disabled={loading}
+          />
+        </View>
 
-        {loading ? (
-          <View style={styles.centered}>
-            <ActivityIndicator color={theme.colors.primary} />
-            <Text
-              variant="bodyMedium"
-              style={{ color: theme.colors.onSurfaceVariant, marginTop: spacing.sm }}
-            >
-              Loading phone contacts…
+        <View style={styles.body}>
+          <Text style={styles.subtitle}>
+            Choose who to add to tele-calling. Only selected contacts are
+            imported. Duplicate numbers already in your list are skipped.
+          </Text>
+
+          {accessLimited ? (
+            <Text style={styles.limitedHint}>
+              Limited Contacts access — only contacts you shared with Ganeshay
+              appear here.
             </Text>
-          </View>
-        ) : error ? (
-          <View style={styles.centered}>
-            <EmptyState icon="alert-circle-outline" message={error} />
-            <AppButton variant="outline" onPress={onDismiss} style={styles.closeBtn}>
-              Close
-            </AppButton>
-          </View>
-        ) : (
-          <>
-            <Searchbar
-              placeholder="Search name or number"
-              value={query}
-              onChangeText={setQuery}
-              style={styles.search}
-              inputStyle={styles.searchInput}
-            />
+          ) : null}
 
-            <View style={styles.toolbar}>
-              <Text
-                variant="labelLarge"
-                style={{ color: theme.colors.onSurfaceVariant }}
-              >
-                {selectedCount} selected
-                {options.length ? ` · ${options.length} with valid mobile` : ''}
-              </Text>
-              {filtered.length > 0 ? (
-                <Pressable onPress={toggleSelectAllFiltered} hitSlop={8}>
-                  <Text
-                    variant="labelLarge"
-                    style={{ color: theme.colors.primary, fontWeight: '600' }}
-                  >
-                    {allFilteredSelected
-                      ? 'Clear visible'
-                      : query.trim()
-                        ? 'Select all visible'
-                        : 'Select all'}
-                  </Text>
-                </Pressable>
-              ) : null}
+          {loading ? (
+            <View style={styles.centered}>
+              <ActivityIndicator size="large" color={colors.royalRed} />
+              <Text style={styles.loadingText}>Loading phone contacts…</Text>
             </View>
-
-            <FlatList
-              data={filtered}
-              keyExtractor={(item) => item.key}
-              extraData={{ query, selectedKeys, selectedCount }}
-              style={styles.list}
-              keyboardShouldPersistTaps="handled"
-              ListEmptyComponent={
-                <EmptyState
-                  icon="account-off-outline"
-                  message={
-                    options.length === 0
-                      ? 'No valid Indian mobile numbers found on this phone.'
-                      : 'No contacts match your search.'
-                  }
-                />
-              }
-              renderItem={({ item }) => {
-                const checked = selectedKeys.has(item.key);
-                return (
-                  <Pressable
-                    onPress={() => toggleKey(item.key)}
-                    style={[
-                      styles.row,
-                      {
-                        borderBottomColor: theme.colors.outlineVariant,
-                        backgroundColor: checked
-                          ? theme.colors.secondaryContainer
-                          : 'transparent',
-                      },
-                    ]}
-                  >
-                    <Checkbox
-                      status={checked ? 'checked' : 'unchecked'}
-                      onPress={() => toggleKey(item.key)}
-                      color={theme.colors.primary}
-                    />
-                    <View style={styles.rowText}>
-                      <Text
-                        variant="titleSmall"
-                        numberOfLines={1}
-                        style={{ color: theme.colors.onSurface }}
-                      >
-                        {item.name}
-                      </Text>
-                      <Text
-                        variant="bodySmall"
-                        style={{ color: theme.colors.onSurfaceVariant }}
-                      >
-                        {item.mobile}
-                      </Text>
-                    </View>
-                  </Pressable>
-                );
-              }}
-            />
-
-            <View style={styles.actions}>
+          ) : error ? (
+            <View style={styles.centered}>
+              <EmptyState icon="alert-circle-outline" message={error} />
               <AppButton
                 variant="outline"
                 onPress={onDismiss}
-                style={styles.actionBtn}
+                style={styles.closeBtn}
               >
-                Cancel
-              </AppButton>
-              <AppButton
-                onPress={handleConfirm}
-                disabled={selectedCount === 0}
-                style={styles.actionBtn}
-              >
-                {selectedCount > 0 ? `Import ${selectedCount}` : 'Import'}
+                Close
               </AppButton>
             </View>
-          </>
-        )}
-      </Modal>
-    </Portal>
+          ) : (
+            <>
+              <Searchbar
+                placeholder="Search name or number"
+                value={query}
+                onChangeText={setQuery}
+                style={styles.search}
+                inputStyle={styles.searchInput}
+              />
+
+              <View style={styles.toolbar}>
+                <Text style={styles.toolbarLabel}>
+                  {selectedCount} selected
+                  {options.length
+                    ? ` · ${options.length} with valid mobile`
+                    : ''}
+                </Text>
+                {filtered.length > 0 ? (
+                  <Pressable onPress={toggleSelectAllFiltered} hitSlop={8}>
+                    <Text style={styles.selectAll}>
+                      {allFilteredSelected
+                        ? 'Clear visible'
+                        : query.trim()
+                          ? 'Select all visible'
+                          : 'Select all'}
+                    </Text>
+                  </Pressable>
+                ) : null}
+              </View>
+
+              <FlatList
+                data={filtered}
+                keyExtractor={(item) => item.key}
+                extraData={{ query, selectedKeys, selectedCount }}
+                style={styles.list}
+                contentContainerStyle={styles.listContent}
+                keyboardShouldPersistTaps="handled"
+                ListEmptyComponent={
+                  <EmptyState
+                    icon="account-off-outline"
+                    message={
+                      options.length === 0
+                        ? accessLimited
+                          ? 'No shared contacts with a valid Indian mobile. Allow Full Access in Settings, or share more contacts.'
+                          : 'No valid Indian mobile numbers found on this phone.'
+                        : 'No contacts match your search.'
+                    }
+                  />
+                }
+                renderItem={({ item }) => {
+                  const checked = selectedKeys.has(item.key);
+                  return (
+                    <Pressable
+                      onPress={() => toggleKey(item.key)}
+                      style={({ pressed }) => [
+                        styles.row,
+                        checked && styles.rowSelected,
+                        pressed && styles.rowPressed,
+                      ]}
+                    >
+                      <Checkbox
+                        status={checked ? 'checked' : 'unchecked'}
+                        onPress={() => toggleKey(item.key)}
+                        color={colors.royalRed}
+                      />
+                      <View style={styles.rowText}>
+                        <Text style={styles.rowName} numberOfLines={1}>
+                          {item.name}
+                        </Text>
+                        <Text style={styles.rowMobile}>{item.mobile}</Text>
+                      </View>
+                    </Pressable>
+                  );
+                }}
+              />
+
+              <View style={styles.actions}>
+                <AppButton
+                  variant="outline"
+                  onPress={onDismiss}
+                  style={styles.actionBtn}
+                >
+                  Cancel
+                </AppButton>
+                <AppButton
+                  onPress={handleConfirm}
+                  disabled={selectedCount === 0}
+                  style={styles.actionBtn}
+                >
+                  {selectedCount > 0 ? `Import ${selectedCount}` : 'Import'}
+                </AppButton>
+              </View>
+            </>
+          )}
+        </View>
+      </View>
+    </Modal>
   );
 }
 
 const styles = StyleSheet.create({
-  sheet: {
-    marginHorizontal: spacing.sm,
-    marginVertical: spacing.lg,
-    borderRadius: radius.lg,
-    padding: spacing.md,
+  container: {
     flex: 1,
-    maxHeight: '92%',
+    backgroundColor: colors.warmIvory,
+  },
+  header: {
+    backgroundColor: colors.royalRed,
+    paddingTop: spacing.xl,
+    paddingHorizontal: spacing.md,
+    paddingBottom: spacing.sm,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  title: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: colors.white,
+    flex: 1,
+  },
+  body: {
+    flex: 1,
+    padding: spacing.md,
+  },
+  subtitle: {
+    fontSize: 14,
+    color: colors.textSecondary,
+    marginBottom: spacing.sm,
+    lineHeight: 20,
+  },
+  limitedHint: {
+    fontSize: 13,
+    color: colors.royalRed,
+    marginBottom: spacing.sm,
+    lineHeight: 18,
   },
   search: {
     marginBottom: spacing.xs,
-    backgroundColor: colors.warmIvory,
+    backgroundColor: colors.white,
     elevation: 0,
   },
   searchInput: {
@@ -296,27 +318,63 @@ const styles = StyleSheet.create({
     marginBottom: spacing.xs,
     minHeight: touchTarget.min / 1.5,
   },
+  toolbarLabel: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.textSecondary,
+    flex: 1,
+  },
+  selectAll: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: colors.royalRed,
+  },
   list: {
+    flex: 1,
+  },
+  listContent: {
+    paddingBottom: spacing.md,
     flexGrow: 1,
-    flexShrink: 1,
   },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
+    backgroundColor: colors.white,
+    borderRadius: radius.lg,
     paddingVertical: spacing.xs,
-    paddingRight: spacing.sm,
-    borderBottomWidth: StyleSheet.hairlineWidth,
+    paddingRight: spacing.md,
+    paddingLeft: spacing.xs,
+    marginBottom: spacing.sm,
+    borderWidth: 1,
+    borderColor: colors.goldLight,
     minHeight: touchTarget.min,
-    borderRadius: radius.sm,
+  },
+  rowSelected: {
+    borderColor: colors.royalRed,
+    backgroundColor: colors.warmIvory,
+  },
+  rowPressed: {
+    opacity: 0.9,
   },
   rowText: {
     flex: 1,
     marginLeft: spacing.xs,
   },
+  rowName: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: colors.textPrimary,
+  },
+  rowMobile: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.royalRed,
+    marginTop: 2,
+  },
   actions: {
     flexDirection: 'row',
     gap: spacing.sm,
-    marginTop: spacing.md,
+    marginTop: spacing.sm,
   },
   actionBtn: {
     flex: 1,
@@ -327,6 +385,11 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     paddingVertical: spacing.xl,
+  },
+  loadingText: {
+    fontSize: 15,
+    color: colors.textSecondary,
+    marginTop: spacing.sm,
   },
   closeBtn: {
     marginTop: spacing.md,

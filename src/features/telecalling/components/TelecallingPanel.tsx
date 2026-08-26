@@ -47,7 +47,7 @@ import {
   contactMatchesFilter,
   normalizeTelecallingStatus,
 } from '@/types/telecalling';
-import { mobileMatchesQuery } from '../utils/phoneNormalize';
+import { mobileMatchesQuery, normalizeMobile } from '../utils/phoneNormalize';
 import { shareStallDetailsOnWhatsApp } from '../services/stallDetailsWhatsAppService';
 import { isCallLogSupported } from '../services/callLogService';
 import { useSettingsStore } from '@/features/settings/store/settingsStore';
@@ -97,7 +97,16 @@ export function TelecallingPanel() {
 
   const filteredContacts = useMemo(() => {
     const list: TelecallingContact[] = contacts ?? [];
-    return list.filter((c) => contactMatchesFilter(c.call_status, filter));
+    // Dedupe by normalized mobile in case older rows slipped past UNIQUE.
+    const seen = new Set<string>();
+    const unique: TelecallingContact[] = [];
+    for (const c of list) {
+      const mobile = normalizeMobile(c.mobile);
+      if (mobile && seen.has(mobile)) continue;
+      if (mobile) seen.add(mobile);
+      unique.push(c);
+    }
+    return unique.filter((c) => contactMatchesFilter(c.call_status, filter));
   }, [contacts, filter]);
 
   /** Tab filter first, then name/phone search — does not change underlying counts. */
@@ -113,12 +122,20 @@ export function TelecallingPanel() {
 
   const filterCounts = useMemo(() => {
     const list: TelecallingContact[] = contacts ?? [];
+    const seen = new Set<string>();
+    const unique: TelecallingContact[] = [];
+    for (const c of list) {
+      const mobile = normalizeMobile(c.mobile);
+      if (mobile && seen.has(mobile)) continue;
+      if (mobile) seen.add(mobile);
+      unique.push(c);
+    }
     const counts: Partial<Record<TelecallingFilterId, number>> = {
-      all: list.length,
+      all: unique.length,
     };
     for (const f of TELECALLING_FILTERS) {
       if (f.statuses == null) continue;
-      counts[f.id] = list.filter((c) =>
+      counts[f.id] = unique.filter((c) =>
         contactMatchesFilter(c.call_status, f.id)
       ).length;
     }
@@ -323,13 +340,20 @@ export function TelecallingPanel() {
         await importMutation.mutateAsync(contacts);
 
       setFilter('all');
-      Alert.alert(
-        'Import complete',
-        `Added ${inserted.length} from ${sourceLabel}.` +
-          (skippedExisting
-            ? ` Skipped ${skippedExisting} already in tele-calling.`
-            : '')
-      );
+      if (inserted.length === 0 && skippedExisting > 0) {
+        Alert.alert(
+          'Already in list',
+          `All ${skippedExisting} selected number(s) are already in tele-calling (or duplicates). Nothing new was added.`
+        );
+      } else {
+        Alert.alert(
+          'Import complete',
+          `Added ${inserted.length} from ${sourceLabel}.` +
+            (skippedExisting
+              ? ` Skipped ${skippedExisting} already in tele-calling / duplicates.`
+              : '')
+        );
+      }
     } catch (err) {
       Alert.alert('Import failed', getErrorMessage(err));
     } finally {

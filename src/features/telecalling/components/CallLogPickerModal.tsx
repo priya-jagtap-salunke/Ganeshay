@@ -20,9 +20,28 @@ import {
   showCallLogUnavailableAlert,
 } from '../services/callLogService';
 import { CreateTelecallingContactInput } from '@/types/telecalling';
+import {
+  isValidIndianMobile,
+  normalizeMobile,
+} from '../utils/phoneNormalize';
 import { colors } from '@/theme/colors';
 import { radius, spacing } from '@/theme/spacing';
 import { getErrorMessage } from '@/utils/errors';
+
+/** Dedupe by normalized mobile — keep first occurrence. */
+function uniqueImportInputs(
+  contacts: CreateTelecallingContactInput[]
+): CreateTelecallingContactInput[] {
+  const seen = new Set<string>();
+  const unique: CreateTelecallingContactInput[] = [];
+  for (const contact of contacts) {
+    const mobile = normalizeMobile(contact.mobile);
+    if (!isValidIndianMobile(mobile) || seen.has(mobile)) continue;
+    seen.add(mobile);
+    unique.push({ ...contact, mobile });
+  }
+  return unique;
+}
 
 interface CallLogPickerModalProps {
   visible: boolean;
@@ -144,23 +163,36 @@ export function CallLogPickerModal({
       );
       return;
     }
-    onConfirm(selectedEntries.map(entryToImportInput));
+    const unique = uniqueImportInputs(selectedEntries.map(entryToImportInput));
+    if (!unique.length) {
+      Alert.alert(
+        'No valid numbers',
+        'Selected calls have no valid 10-digit Indian mobile numbers.'
+      );
+      return;
+    }
+    onConfirm(unique);
   };
 
   const handleManualAdd = () => {
-    const mobile = manualMobile.replace(/\D/g, '').slice(-10);
-    if (mobile.length !== 10) {
-      Alert.alert('Invalid Number', 'Enter a valid 10-digit mobile number.');
+    const mobile = normalizeMobile(manualMobile);
+    if (!isValidIndianMobile(mobile)) {
+      Alert.alert(
+        'Invalid Number',
+        'Enter a valid 10-digit Indian mobile number starting with 6–9.'
+      );
       return;
     }
 
-    onConfirm([
-      {
-        name: manualName.trim() || `Contact ${mobile}`,
-        mobile,
-        notes: 'Added manually',
-      },
-    ]);
+    onConfirm(
+      uniqueImportInputs([
+        {
+          name: manualName.trim() || `Contact ${mobile}`,
+          mobile,
+          notes: 'Added manually',
+        },
+      ])
+    );
   };
 
   return (

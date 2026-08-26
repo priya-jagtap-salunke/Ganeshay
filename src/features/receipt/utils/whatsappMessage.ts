@@ -40,23 +40,37 @@ Thank you for choosing Bappaji.com.
 Ganpati Bappa Morya! 🙏`;
 }
 
-/** New Booking → Send on WhatsApp — exact Marathi confirmation template. */
+/** New Booking → Send on WhatsApp — Marathi confirmation with full booking details. */
 export function buildNewBookingWhatsAppMessage(booking: Booking): string {
+  const delivery = (booking.delivery_date ?? '').trim();
+  const address = (booking.address ?? '').trim();
+  const payment = (booking.payment_mode ?? '').trim();
+
+  const extraLines = [
+    delivery ? `📅 Delivery / Pickup: ${delivery}` : '',
+    address ? `📍 Address: ${address}` : '',
+    payment ? `💵 Payment: ${payment}` : '',
+  ]
+    .filter(Boolean)
+    .join('\n');
+
   return `🌺🙏 गणपती बाप्पा मोरया! 🙏🌺
 
 प्रिय ${booking.customer_name},
 
 आपल्या घरच्या बाप्पांसाठी आमच्यावर विश्वास ठेवून Eco-Friendly मूर्तीची बुकिंग केल्याबद्दल मनापासून धन्यवाद! ❤️
 
-आपल्या बुकिंगची छोटीशी माहिती 👇
+आपल्या बुकिंगची संपूर्ण माहिती 👇
 
 ✨ Booking ID: ${booking.booking_number}
 🪷 मूर्ती: ${formatMurtiLabel(booking)}
 💰 Total Amount: ₹${formatAmount(booking.price)}
 ✅ Paid: ₹${formatAmount(booking.advance)}
-💳 Balance Amount: ₹${formatAmount(booking.pending)}
+💳 Balance Amount: ₹${formatAmount(booking.pending)}${
+    extraLines ? `\n${extraLines}` : ''
+  }
 
-📸 आपल्या बुक केलेल्या बाप्पांचा फोटो आणि 🧾 Invoice PDF या मेसेजसोबत पाठवत आहोत.
+🧾 Invoice PDF या मेसेजसोबत पाठवत आहोत.
 
 आता फक्त बाप्पांच्या आगमनाची वाट… ❤️
 लवकरच आपल्या घरी बाप्पा विराजमान होवोत आणि सुख, समाधान व आनंद घेऊन येवोत! 🌺✨
