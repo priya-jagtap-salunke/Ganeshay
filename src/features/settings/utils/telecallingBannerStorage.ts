@@ -99,18 +99,33 @@ export async function ensureShareableTelecallingBannerUri(
   if (!cacheDir) {
     throw new Error('File storage is unavailable on this device.');
   }
-  const dest = `${cacheDir}telecalling-banner-share.${ext}`;
+  // Unique name avoids stale cache / FileProvider conflicts on rapid re-sends.
+  const dest = `${cacheDir}telecalling-banner-share-${Date.now()}.${ext}`;
 
   if (storedUri.startsWith('data:')) {
     const base64 = storedUri.split(',')[1] ?? '';
+    if (!base64) {
+      throw new Error('Tele-calling banner data is empty.');
+    }
     await FileSystem.writeAsStringAsync(dest, base64, {
       encoding: FileSystem.EncodingType.Base64,
     });
-    return { uri: dest, type: mime };
+  } else {
+    const info = await FileSystem.getInfoAsync(storedUri);
+    if (!info.exists) {
+      throw new Error('Tele-calling banner file was not found on device.');
+    }
+    await FileSystem.copyAsync({ from: storedUri, to: dest });
   }
 
-  await FileSystem.copyAsync({ from: storedUri, to: dest });
-  return { uri: dest, type: mime };
+  const shared = await FileSystem.getInfoAsync(dest);
+  if (!shared.exists) {
+    throw new Error('Could not create a shareable tele-calling banner file.');
+  }
+
+  // react-native-share expects a file:// URI on Android.
+  const uri = dest.startsWith('file://') ? dest : `file://${dest}`;
+  return { uri, type: mime };
 }
 
 export function downloadTelecallingBannerOnWeb(storedUri: string): void {

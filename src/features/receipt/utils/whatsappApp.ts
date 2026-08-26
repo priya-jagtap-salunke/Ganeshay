@@ -60,13 +60,18 @@ export function showWhatsAppMissingAlert(): void {
   );
 }
 
-/** Open the installed WhatsApp package directly (no Messenger / share sheet). */
+/**
+ * Open WhatsApp / WhatsApp Business directly to a chat with prefilled text.
+ * Pass `appKind` when the caller already resolved the package so message +
+ * follow-up image shares target the same app.
+ */
 export async function openDeviceWhatsAppApp(
   phone: string,
-  message: string
+  message: string,
+  appKind?: WhatsAppAppKind
 ): Promise<void> {
   const encodedText = encodeURIComponent(message);
-  const installed = await resolveInstalledWhatsAppApp();
+  const installed = appKind ?? (await resolveInstalledWhatsAppApp());
 
   if (!installed) {
     showWhatsAppMissingAlert();
