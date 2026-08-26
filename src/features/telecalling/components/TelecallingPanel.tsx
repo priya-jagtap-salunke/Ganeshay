@@ -348,7 +348,10 @@ export function TelecallingPanel() {
     contacts: CreateTelecallingContactInput[]
   ) => {
     setCallLogPickerVisible(false);
-    await importContactBatch(contacts, 'call log');
+    await importContactBatch(
+      contacts,
+      isCallLogSupported() ? 'call log' : 'manual entry'
+    );
   };
 
   const handleDelete = (contact: TelecallingContact) => {

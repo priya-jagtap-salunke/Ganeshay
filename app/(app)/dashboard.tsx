@@ -28,8 +28,12 @@ import { radius, spacing } from '@/theme/spacing';
 
 /** Soft screen wash — warm ivory into a light brand rose. */
 const DASHBOARD_BG = [colors.warmIvoryDark, colors.warmIvory, '#FFF7F5'] as const;
-/** Vendor header panel — ivory → soft rose → gold light (keeps dark title readable). */
-const VENDOR_HEADER_BG = ['#FFFBFF', '#FFF1EE', colors.goldLight] as const;
+/** Vendor hero — brand royal red into deep maroon with a soft gold edge. */
+const VENDOR_HEADER_BG = [
+  colors.royalRedLight,
+  colors.royalRed,
+  colors.royalRedDark,
+] as const;
 
 /** Display serif for vendor title — matches receipt brand typography (no custom font package). */
 const vendorTitleFontFamily = Platform.select({
@@ -39,7 +43,7 @@ const vendorTitleFontFamily = Platform.select({
   default: 'serif',
 });
 
-const HOME_LOGO_SIZE = 56;
+const HOME_LOGO_SIZE = 64;
 
 function isRenderableBusinessLogo(uri: string | null | undefined): boolean {
   if (!uri) return false;
@@ -182,57 +186,62 @@ export default function DashboardScreen() {
           showsVerticalScrollIndicator={false}
           nestedScrollEnabled
         >
-          <LinearGradient
-            colors={[...VENDOR_HEADER_BG]}
-            locations={[0, 0.55, 1]}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={[
-              styles.homeHeader,
-              {
-                borderColor: withAlpha(colors.gold, '66'),
-              },
-            ]}
-            accessibilityRole="header"
-            accessibilityLabel={`${vendorTitle} home`}
-          >
-            {hasVendorLogo ? (
-              <BusinessLogo size={HOME_LOGO_SIZE} style={styles.homeHeaderLogo} />
-            ) : (
-              <BrandLogo
-                variant="icon"
-                size={HOME_LOGO_SIZE}
-                framed
-                style={styles.homeHeaderLogo}
-              />
-            )}
-            <View style={styles.homeHeaderText}>
-              <Text
-                variant="headlineSmall"
-                style={[
-                  styles.homeHeaderTitle,
-                  {
-                    color: theme.colors.onSurface,
-                    fontFamily: vendorTitleFontFamily,
-                  },
-                ]}
-                numberOfLines={2}
-                ellipsizeMode="tail"
-              >
-                {vendorTitle}
-              </Text>
-              <Text
-                variant="labelMedium"
-                style={[
-                  styles.homeHeaderSubtitle,
-                  { color: theme.colors.secondary },
-                ]}
-                numberOfLines={1}
-              >
-                Bappaji.com
-              </Text>
-            </View>
-          </LinearGradient>
+          <Animated.View entering={FadeInDown.springify()}>
+            <LinearGradient
+              colors={[...VENDOR_HEADER_BG]}
+              locations={[0, 0.45, 1]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.homeHeader}
+              accessibilityRole="header"
+              accessibilityLabel={`${vendorTitle} home`}
+            >
+              {/* Soft gold glow accents — atmosphere only, no extra content */}
+              <View style={styles.homeHeaderGlowA} pointerEvents="none" />
+              <View style={styles.homeHeaderGlowB} pointerEvents="none" />
+              <View style={styles.homeHeaderGoldEdge} pointerEvents="none" />
+
+              <View style={styles.homeHeaderLogoRing}>
+                {hasVendorLogo ? (
+                  <BusinessLogo
+                    size={HOME_LOGO_SIZE}
+                    style={styles.homeHeaderLogo}
+                  />
+                ) : (
+                  <BrandLogo
+                    variant="icon"
+                    size={HOME_LOGO_SIZE}
+                    framed
+                    style={styles.homeHeaderLogo}
+                  />
+                )}
+              </View>
+
+              <View style={styles.homeHeaderText}>
+                <Text
+                  variant="headlineSmall"
+                  style={[
+                    styles.homeHeaderTitle,
+                    { fontFamily: vendorTitleFontFamily },
+                  ]}
+                  numberOfLines={2}
+                  ellipsizeMode="tail"
+                >
+                  {vendorTitle}
+                </Text>
+                <View style={styles.homeHeaderMetaRow}>
+                  <View style={styles.homeHeaderMetaRule} />
+                  <Text
+                    variant="labelMedium"
+                    style={styles.homeHeaderSubtitle}
+                    numberOfLines={1}
+                  >
+                    Bappaji.com
+                  </Text>
+                </View>
+              </View>
+            </LinearGradient>
+          </Animated.View>
 
           <DashboardSection
             title="Quick actions"
@@ -355,12 +364,56 @@ const styles = StyleSheet.create({
     gap: spacing.md,
     marginHorizontal: spacing.md,
     marginTop: spacing.md,
-    marginBottom: spacing.sm,
-    paddingVertical: spacing.md,
-    paddingHorizontal: spacing.md,
-    borderRadius: radius.lg,
-    borderWidth: StyleSheet.hairlineWidth,
+    marginBottom: spacing.md,
+    paddingVertical: spacing.lg,
+    paddingHorizontal: spacing.md + 2,
+    borderRadius: radius.xl,
     overflow: 'hidden',
+    ...Platform.select({
+      ios: {
+        shadowColor: colors.royalRedDark,
+        shadowOffset: { width: 0, height: 8 },
+        shadowOpacity: 0.28,
+        shadowRadius: 14,
+      },
+      android: { elevation: 6 },
+      default: {},
+    }),
+  },
+  homeHeaderGlowA: {
+    position: 'absolute',
+    width: 160,
+    height: 160,
+    borderRadius: 80,
+    backgroundColor: withAlpha(colors.goldLight, '33'),
+    top: -70,
+    right: -40,
+  },
+  homeHeaderGlowB: {
+    position: 'absolute',
+    width: 110,
+    height: 110,
+    borderRadius: 55,
+    backgroundColor: withAlpha(colors.white, '18'),
+    bottom: -50,
+    left: -20,
+  },
+  homeHeaderGoldEdge: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    height: 3,
+    backgroundColor: colors.gold,
+    opacity: 0.85,
+  },
+  homeHeaderLogoRing: {
+    flexShrink: 0,
+    padding: 4,
+    borderRadius: radius.lg + 4,
+    backgroundColor: withAlpha(colors.white, 'F2'),
+    borderWidth: 1.5,
+    borderColor: withAlpha(colors.gold, 'CC'),
   },
   homeHeaderLogo: {
     flexShrink: 0,
@@ -369,20 +422,37 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 0,
     justifyContent: 'center',
-    gap: spacing.xxs,
+    gap: spacing.xs,
   },
   homeHeaderTitle: {
-    fontWeight: '700',
-    fontSize: 24,
-    lineHeight: 30,
-    letterSpacing: -0.2,
+    color: colors.white,
+    fontWeight: '800',
+    fontSize: 26,
+    lineHeight: 32,
+    letterSpacing: -0.3,
+    textShadowColor: 'rgba(0,0,0,0.25)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 3,
+  },
+  homeHeaderMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  homeHeaderMetaRule: {
+    width: 22,
+    height: 2,
+    borderRadius: 1,
+    backgroundColor: colors.goldLight,
+    opacity: 0.95,
   },
   homeHeaderSubtitle: {
-    fontWeight: '600',
-    fontSize: 12,
-    lineHeight: 16,
-    letterSpacing: 0.2,
-    opacity: 0.9,
+    color: colors.goldLight,
+    fontWeight: '700',
+    fontSize: 13,
+    lineHeight: 17,
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
   },
   actionsGrid: {
     flexDirection: 'row',

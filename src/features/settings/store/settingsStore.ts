@@ -20,6 +20,7 @@ export const useSettingsStore = create<SettingsState>()(
       stallDescription:
         'Eco-friendly Shadu Mati Shree Ganesha Murti stall with various sizes available.',
       enquiryMessage: DEFAULT_ENQUIRY_MESSAGE,
+      telecallingBannerUri: null,
       murtiesPdfUri: null,
       murtiesPdfName: null,
       businessLogo: null,

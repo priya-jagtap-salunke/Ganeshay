@@ -1,8 +1,8 @@
 import { Platform } from 'react-native';
 import * as FileSystem from 'expo-file-system';
 
-const PDF_FILENAME = 'murties-catalog.pdf';
-const MAX_WEB_PDF_BYTES = 8 * 1024 * 1024;
+const BANNER_FILENAME = 'telecalling-banner.jpg';
+const MAX_WEB_BANNER_BYTES = 4 * 1024 * 1024;
 
 async function readUriAsBase64(uri: string): Promise<string> {
   if (uri.startsWith('data:')) {
@@ -34,40 +34,49 @@ function estimateBase64Bytes(base64: string): number {
   return Math.ceil((base64.length * 3) / 4);
 }
 
-export async function persistMurtiesPdf(
-  sourceUri: string,
-  fileName: string
-): Promise<{ uri: string; name: string }> {
+function mimeFromUri(uri: string, fallback = 'image/jpeg'): string {
+  const lower = uri.toLowerCase();
+  if (lower.startsWith('data:image/')) {
+    const match = /^data:(image\/[a-z0-9.+-]+);/i.exec(uri);
+    return match?.[1] ?? fallback;
+  }
+  if (lower.includes('.png')) return 'image/png';
+  if (lower.includes('.webp')) return 'image/webp';
+  if (lower.includes('.gif')) return 'image/gif';
+  return fallback;
+}
+
+export async function persistTelecallingBanner(
+  sourceUri: string
+): Promise<string> {
   const base64 = await readUriAsBase64(sourceUri);
+  const mime = mimeFromUri(sourceUri);
 
   if (Platform.OS === 'web') {
-    if (estimateBase64Bytes(base64) > MAX_WEB_PDF_BYTES) {
-      throw new Error('PDF is too large for web storage. Please use a file under 8 MB.');
+    if (estimateBase64Bytes(base64) > MAX_WEB_BANNER_BYTES) {
+      throw new Error(
+        'Banner image is too large for web storage. Please use a file under 4 MB.'
+      );
     }
-    return {
-      uri: `data:application/pdf;base64,${base64}`,
-      name: fileName,
-    };
+    return `data:${mime};base64,${base64}`;
   }
 
   const baseDir = FileSystem.documentDirectory;
   if (!baseDir) {
     throw new Error('File storage is unavailable on this device.');
   }
-  const dest = `${baseDir}${PDF_FILENAME}`;
+  const dest = `${baseDir}${BANNER_FILENAME}`;
   await FileSystem.writeAsStringAsync(dest, base64, {
     encoding: FileSystem.EncodingType.Base64,
   });
-
-  return { uri: dest, name: fileName };
+  return dest;
 }
 
-export async function removeMurtiesPdf(storedUri: string | null): Promise<void> {
+export async function removeTelecallingBanner(
+  storedUri: string | null
+): Promise<void> {
   if (!storedUri) return;
-
-  if (storedUri.startsWith('data:') || Platform.OS === 'web') {
-    return;
-  }
+  if (storedUri.startsWith('data:') || Platform.OS === 'web') return;
 
   const info = await FileSystem.getInfoAsync(storedUri);
   if (info.exists) {
@@ -75,35 +84,41 @@ export async function removeMurtiesPdf(storedUri: string | null): Promise<void> 
   }
 }
 
-export async function ensureShareableMurtiesPdfUri(
+/** Write a shareable file URI for WhatsApp (handles data: and file paths). */
+export async function ensureShareableTelecallingBannerUri(
   storedUri: string
-): Promise<string> {
+): Promise<{ uri: string; type: string }> {
+  const mime = mimeFromUri(storedUri);
+  const ext =
+    mime === 'image/png'
+      ? 'png'
+      : mime === 'image/webp'
+        ? 'webp'
+        : 'jpg';
   const cacheDir = FileSystem.cacheDirectory;
   if (!cacheDir) {
     throw new Error('File storage is unavailable on this device.');
   }
-  const dest = `${cacheDir}${PDF_FILENAME}`;
+  const dest = `${cacheDir}telecalling-banner-share.${ext}`;
 
   if (storedUri.startsWith('data:')) {
     const base64 = storedUri.split(',')[1] ?? '';
     await FileSystem.writeAsStringAsync(dest, base64, {
       encoding: FileSystem.EncodingType.Base64,
     });
-    return dest;
+    return { uri: dest, type: mime };
   }
 
   await FileSystem.copyAsync({ from: storedUri, to: dest });
-  return dest;
+  return { uri: dest, type: mime };
 }
 
-export function downloadMurtiesPdfOnWeb(
-  storedUri: string,
-  fileName: string
-): void {
+export function downloadTelecallingBannerOnWeb(storedUri: string): void {
   if (typeof document === 'undefined') return;
-
+  const mime = mimeFromUri(storedUri);
+  const ext = mime === 'image/png' ? 'png' : 'jpg';
   const anchor = document.createElement('a');
   anchor.href = storedUri;
-  anchor.download = fileName || 'Ganesha_Murties_Catalog.pdf';
+  anchor.download = `Telecalling_Banner.${ext}`;
   anchor.click();
 }

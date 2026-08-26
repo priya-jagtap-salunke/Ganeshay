@@ -10,6 +10,7 @@ import { useVendorStore } from '@/stores/vendorStore';
 import { getErrorMessage } from '@/utils/errors';
 import { BusinessLogoPicker } from './BusinessLogoPicker';
 import { MurtiesPdfPicker } from './MurtiesPdfPicker';
+import { TelecallingBannerPicker } from './TelecallingBannerPicker';
 import { AppInput } from '@/components/ui/AppInput';
 import { AppButton } from '@/components/ui/AppButton';
 import {
@@ -29,6 +30,7 @@ export function SettingsForm() {
     mapLink,
     stallDescription,
     enquiryMessage,
+    telecallingBannerUri,
     murtiesPdfUri,
     murtiesPdfName,
     businessLogo,
@@ -45,6 +47,7 @@ export function SettingsForm() {
       stallDescription ??
       'Eco-friendly Shadu Mati Shree Ganesha Murti stall with various sizes available.',
     enquiryMessage: enquiryMessage ?? DEFAULT_ENQUIRY_MESSAGE,
+    telecallingBannerUri: telecallingBannerUri ?? null,
     murtiesPdfUri: murtiesPdfUri ?? null,
     murtiesPdfName: murtiesPdfName ?? null,
     businessLogo,
@@ -65,6 +68,7 @@ export function SettingsForm() {
         stallDescription ??
         'Eco-friendly Shadu Mati Shree Ganesha Murti stall with various sizes available.',
       enquiryMessage: enquiryMessage ?? DEFAULT_ENQUIRY_MESSAGE,
+      telecallingBannerUri: telecallingBannerUri ?? null,
       murtiesPdfUri: murtiesPdfUri ?? null,
       murtiesPdfName: murtiesPdfName ?? null,
       businessLogo,
@@ -77,6 +81,7 @@ export function SettingsForm() {
     mapLink,
     stallDescription,
     enquiryMessage,
+    telecallingBannerUri,
     murtiesPdfUri,
     murtiesPdfName,
     businessLogo,
@@ -177,6 +182,14 @@ export function SettingsForm() {
       >
         Reset to Default Message
       </AppButton>
+
+      <TelecallingBannerPicker
+        bannerUri={form.telecallingBannerUri}
+        onBannerChange={(telecallingBannerUri) => {
+          setForm((f) => ({ ...f, telecallingBannerUri }));
+          updateSettings({ telecallingBannerUri });
+        }}
+      />
 
       <MurtiesPdfPicker
         pdfUri={form.murtiesPdfUri}

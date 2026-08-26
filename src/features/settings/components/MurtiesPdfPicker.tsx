@@ -86,8 +86,8 @@ export function MurtiesPdfPicker({
     <View style={styles.container}>
       <Text style={styles.label}>Ganesha Murties Catalog (PDF)</Text>
       <Text style={styles.hint}>
-        This PDF is attached with your Tele-calling WhatsApp message when you tap
-        Send Details.
+        Optional catalog PDF. When a banner image is set, Send attaches the banner
+        with your message first, then this PDF as a follow-up.
       </Text>
 
       <View style={styles.previewBox}>

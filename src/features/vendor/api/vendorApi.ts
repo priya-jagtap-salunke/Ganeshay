@@ -20,6 +20,8 @@ export function vendorToSettings(vendor: Vendor): BusinessSettings {
     mapLink: vendor.map_link ?? '',
     stallDescription: vendor.stall_description ?? '',
     enquiryMessage: vendor.enquiry_message ?? DEFAULT_ENQUIRY_MESSAGE,
+    // Local-only media — never overwrite from vendor row (always null here).
+    telecallingBannerUri: null,
     murtiesPdfUri: null,
     murtiesPdfName: null,
     businessLogo: vendor.business_logo,

@@ -6,9 +6,9 @@ const WHATSAPP_BUSINESS_PACKAGE = 'com.whatsapp.w4b';
 
 export type WhatsAppAppKind = 'consumer' | 'business';
 
-async function isWhatsAppSchemeAvailable(): Promise<boolean> {
+async function canOpenWhatsAppScheme(url: string): Promise<boolean> {
   try {
-    return await Linking.canOpenURL('whatsapp://send');
+    return await Linking.canOpenURL(url);
   } catch {
     return false;
   }
@@ -18,6 +18,8 @@ async function isWhatsAppSchemeAvailable(): Promise<boolean> {
  * Resolve which WhatsApp app to open.
  * Prefer WhatsApp Business when installed (many vendors use it as primary);
  * otherwise WhatsApp. Avoids opening Facebook Messenger or a generic share sheet.
+ * Android uses package checks; iOS uses LSApplicationQueriesSchemes (whatsapp /
+ * whatsapp-business).
  */
 export async function resolveInstalledWhatsAppApp(): Promise<WhatsAppAppKind | null> {
   if (Platform.OS === 'android') {
@@ -33,8 +35,13 @@ export async function resolveInstalledWhatsAppApp(): Promise<WhatsAppAppKind | n
     }
   }
 
-  const schemeOk = await isWhatsAppSchemeAvailable();
-  return schemeOk ? 'consumer' : null;
+  if (await canOpenWhatsAppScheme('whatsapp-business://send')) {
+    return 'business';
+  }
+  if (await canOpenWhatsAppScheme('whatsapp://send')) {
+    return 'consumer';
+  }
+  return null;
 }
 
 export function whatsAppSocialForKind(
@@ -58,7 +65,6 @@ export async function openDeviceWhatsAppApp(
   phone: string,
   message: string
 ): Promise<void> {
-  const appUrl = getWhatsAppAppUrl(phone, message);
   const encodedText = encodeURIComponent(message);
   const installed = await resolveInstalledWhatsAppApp();
 
@@ -78,9 +84,20 @@ export async function openDeviceWhatsAppApp(
       await Linking.openURL(intentUrl);
       return;
     } catch {
-      // Fall through to whatsapp://
+      // Fall through to scheme URLs
     }
   }
 
-  await Linking.openURL(appUrl);
+  if (installed === 'business') {
+    try {
+      await Linking.openURL(
+        `whatsapp-business://send?phone=${phone}&text=${encodedText}`
+      );
+      return;
+    } catch {
+      // Fall through to consumer whatsapp://
+    }
+  }
+
+  await Linking.openURL(getWhatsAppAppUrl(phone, message));
 }

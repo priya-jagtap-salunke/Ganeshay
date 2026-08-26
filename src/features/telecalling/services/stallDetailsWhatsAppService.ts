@@ -16,56 +16,85 @@ import {
   downloadMurtiesPdfOnWeb,
   ensureShareableMurtiesPdfUri,
 } from '@/features/settings/utils/murtiesPdfStorage';
+import {
+  downloadTelecallingBannerOnWeb,
+  ensureShareableTelecallingBannerUri,
+} from '@/features/settings/utils/telecallingBannerStorage';
 
-async function shareViaReactNativeShare(
-  message: string,
-  phone: string,
-  appKind: WhatsAppAppKind,
-  pdfUri?: string
-): Promise<void> {
+function normalizeShareUrl(uri: string): string {
+  const fileUrl =
+    Platform.OS === 'android' ? uri : uri.replace('file://', '');
+  return fileUrl.startsWith('file://') ? fileUrl : `file://${fileUrl}`;
+}
+
+function isUserCancelledShare(error: unknown): boolean {
+  const msg = (
+    error instanceof Error ? error.message : String(error)
+  ).toLowerCase();
+  return (
+    msg.includes('user did not share') ||
+    msg.includes('user cancelled') ||
+    msg.includes('user canceled') ||
+    msg.includes('ecancelled') ||
+    msg.includes('ecanceled')
+  );
+}
+
+async function shareViaReactNativeShare(params: {
+  message: string;
+  phone: string;
+  appKind: WhatsAppAppKind;
+  url?: string;
+  type?: string;
+}): Promise<void> {
   const Share = (await import('react-native-share')).default;
-  const social = whatsAppSocialForKind(Share, appKind);
+  const social = whatsAppSocialForKind(Share, params.appKind);
 
-  const payload: {
-    title: string;
-    message: string;
-    social: typeof social;
-    whatsAppNumber: string;
-    url?: string;
-    type?: string;
-  } = {
+  await Share.shareSingle({
     title: 'Stall Enquiry Details',
-    message,
+    message: params.message,
     social,
-    whatsAppNumber: phone,
-  };
-
-  if (pdfUri) {
-    const fileUrl =
-      Platform.OS === 'android'
-        ? pdfUri
-        : pdfUri.replace('file://', '');
-    payload.url = fileUrl.startsWith('file://') ? fileUrl : `file://${fileUrl}`;
-    payload.type = 'application/pdf';
-  }
-
-  await Share.shareSingle(payload);
+    whatsAppNumber: params.phone,
+    ...(params.url
+      ? {
+          url: normalizeShareUrl(params.url),
+          type: params.type,
+        }
+      : {}),
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  } as any);
 }
 
 async function shareNativeFallback(
   phone: string,
   message: string,
   appKind: WhatsAppAppKind,
+  banner?: { uri: string; type: string },
   pdfUri?: string
 ): Promise<void> {
   await openDeviceWhatsAppApp(phone, message);
 
-  if (!pdfUri) return;
-
   try {
-    await shareViaReactNativeShare('', phone, appKind, pdfUri);
+    if (banner) {
+      await shareViaReactNativeShare({
+        message: '',
+        phone,
+        appKind,
+        url: banner.uri,
+        type: banner.type,
+      });
+    }
+    if (pdfUri) {
+      await shareViaReactNativeShare({
+        message: '',
+        phone,
+        appKind,
+        url: pdfUri,
+        type: 'application/pdf',
+      });
+    }
   } catch (error) {
-    console.warn('WhatsApp PDF fallback failed', error);
+    console.warn('WhatsApp attachment fallback failed', error);
   }
 }
 
@@ -74,6 +103,9 @@ async function shareOnWeb(
   message: string,
   settings: BusinessSettings
 ): Promise<void> {
+  if (settings.telecallingBannerUri) {
+    downloadTelecallingBannerOnWeb(settings.telecallingBannerUri);
+  }
   if (settings.murtiesPdfUri) {
     downloadMurtiesPdfOnWeb(
       settings.murtiesPdfUri,
@@ -98,8 +130,8 @@ export interface StallDetailsShareRecipient {
 
 /**
  * Tele-calling Send Details:
- * Opens installed WhatsApp / WhatsApp Business directly (not Facebook Messenger
- * or the system share sheet), prefills the stall message, attaches murties PDF.
+ * Opens installed WhatsApp / WhatsApp Business directly, prefills the stall
+ * message, attaches the settings banner image (primary), then optional PDF.
  */
 export async function shareStallDetailsOnWhatsApp(
   recipient: StallDetailsShareRecipient,
@@ -110,6 +142,7 @@ export async function shareStallDetailsOnWhatsApp(
     customerName: recipient.customerName,
     callDate: recipient.callDate,
   });
+  const hasBanner = Boolean(settings.telecallingBannerUri);
   const hasPdf = Boolean(settings.murtiesPdfUri);
 
   if (Platform.OS === 'web') {
@@ -123,6 +156,21 @@ export async function shareStallDetailsOnWhatsApp(
     return;
   }
 
+  let shareableBanner: { uri: string; type: string } | undefined;
+  if (hasBanner && settings.telecallingBannerUri) {
+    try {
+      shareableBanner = await ensureShareableTelecallingBannerUri(
+        settings.telecallingBannerUri
+      );
+    } catch (error) {
+      console.warn('Could not prepare tele-calling banner for WhatsApp', error);
+      Alert.alert(
+        'Banner Attach Failed',
+        'Could not prepare the banner image. The message will still open in WhatsApp.'
+      );
+    }
+  }
+
   let shareablePdfUri: string | undefined;
   if (hasPdf && settings.murtiesPdfUri) {
     try {
@@ -131,42 +179,66 @@ export async function shareStallDetailsOnWhatsApp(
       console.warn('Could not prepare murties PDF for WhatsApp share', error);
       Alert.alert(
         'PDF Attach Failed',
-        'Could not prepare the catalog PDF. The message will still open in WhatsApp without the attachment.'
+        'Could not prepare the catalog PDF. The message will still open in WhatsApp.'
       );
     }
   }
 
-  try {
-    await shareViaReactNativeShare(
-      message,
-      phone,
-      installedApp,
-      shareablePdfUri
-    );
-  } catch (error) {
-    const errMsg = error instanceof Error ? error.message : String(error);
-    const lower = errMsg.toLowerCase();
-
-    if (
-      lower.includes('user did not share') ||
-      lower.includes('user cancelled') ||
-      lower.includes('user canceled') ||
-      lower.includes('ecancelled') ||
-      lower.includes('ecanceled')
-    ) {
+  const runShare = async (appKind: WhatsAppAppKind) => {
+    // Primary: pre-drafted message + banner image together.
+    if (shareableBanner) {
+      await shareViaReactNativeShare({
+        message,
+        phone,
+        appKind,
+        url: shareableBanner.uri,
+        type: shareableBanner.type,
+      });
+    } else if (shareablePdfUri) {
+      await shareViaReactNativeShare({
+        message,
+        phone,
+        appKind,
+        url: shareablePdfUri,
+        type: 'application/pdf',
+      });
+      return;
+    } else {
+      await shareViaReactNativeShare({ message, phone, appKind });
       return;
     }
+
+    // Optional follow-up: murties PDF when banner was already sent with message.
+    if (shareablePdfUri) {
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      try {
+        await shareViaReactNativeShare({
+          message: '',
+          phone,
+          appKind,
+          url: shareablePdfUri,
+          type: 'application/pdf',
+        });
+      } catch (pdfError) {
+        if (isUserCancelledShare(pdfError)) return;
+        console.warn('Murties PDF follow-up share failed', pdfError);
+      }
+    }
+  };
+
+  try {
+    await runShare(installedApp);
+  } catch (error) {
+    if (isUserCancelledShare(error)) return;
+
+    const errMsg = error instanceof Error ? error.message : String(error);
+    const lower = errMsg.toLowerCase();
 
     if (lower.includes('not installed') || lower.includes('no activity')) {
       const alternate: WhatsAppAppKind =
         installedApp === 'consumer' ? 'business' : 'consumer';
       try {
-        await shareViaReactNativeShare(
-          message,
-          phone,
-          alternate,
-          shareablePdfUri
-        );
+        await runShare(alternate);
         return;
       } catch {
         showWhatsAppMissingAlert();
@@ -174,6 +246,12 @@ export async function shareStallDetailsOnWhatsApp(
       }
     }
 
-    await shareNativeFallback(phone, message, installedApp, shareablePdfUri);
+    await shareNativeFallback(
+      phone,
+      message,
+      installedApp,
+      shareableBanner,
+      shareablePdfUri
+    );
   }
 }

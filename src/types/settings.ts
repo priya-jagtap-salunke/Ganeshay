@@ -8,6 +8,11 @@ export interface BusinessSettings {
   stallDescription: string;
   /** Pre-drafted WhatsApp message for Tele-calling Send Details. Supports placeholders. */
   enquiryMessage: string;
+  /**
+   * Image banner attached with Tele-calling Send (message + banner).
+   * Stored locally on device (not on vendors table).
+   */
+  telecallingBannerUri: string | null;
   /** Persisted PDF catalog of Ganesha murties sent with Tele-calling WhatsApp messages. */
   murtiesPdfUri: string | null;
   murtiesPdfName: string | null;
