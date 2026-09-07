@@ -3,3 +3,27 @@ node_modules/
 .expo/
 dist/
 web-build/
+
+# Local native build artifacts (inflate EAS archive; EAS regenerates natives)
+android/.gradle/
+android/build/
+android/app/build/
+android/app/.cxx/
+android/local.properties
+*.hprof
+*.apk
+*.aab
+ios/Pods/
+ios/build/
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+
+# Local-only / secrets
+.env
+PROJECT_ROOT.txt
+android/app/debug.keystore
+supabase/.temp/
+agent-transcripts/
