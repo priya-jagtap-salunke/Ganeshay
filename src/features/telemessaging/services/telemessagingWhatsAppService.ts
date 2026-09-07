@@ -59,7 +59,8 @@ function resolveCatalogSettings(
 
 /**
  * Share the Settings catalog PDF into the customer's WhatsApp chat.
- * No text-only open and no manual contact picker.
+ * Android: PDF attached in the customer chat.
+ * iOS: opens WhatsApp chat directly (no Messages vs WhatsApp sheet).
  */
 async function shareCatalogPdfFile(params: {
   phone: string;
@@ -69,6 +70,27 @@ async function shareCatalogPdfFile(params: {
 }): Promise<void> {
   const { phone, appKind, pdfUri, filename } = params;
 
+  try {
+    await shareWhatsAppMedia({
+      title: 'Ganesh Murti Catalog',
+      phone,
+      appKind,
+      url: pdfUri,
+      type: 'application/pdf',
+      filename,
+      message:
+        Platform.OS === 'ios'
+          ? '🙏 Please find our Ganesh Murti catalogue.'
+          : undefined,
+      targetPhone: true,
+    });
+    return;
+  } catch (error) {
+    if (isUserCancelledShare(error)) throw error;
+    if (Platform.OS !== 'android') throw error;
+  }
+
+  // Android fallback: retry direct WhatsApp package share (no system chooser).
   await shareWhatsAppMedia({
     title: 'Ganesh Murti Catalog',
     phone,

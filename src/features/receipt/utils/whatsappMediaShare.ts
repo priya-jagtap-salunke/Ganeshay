@@ -6,6 +6,7 @@ import {
 import * as FileSystem from 'expo-file-system';
 import Share from 'react-native-share';
 import {
+  openDeviceWhatsAppApp,
   whatsAppSocialForKind,
   type WhatsAppAppKind,
 } from './whatsappApp';
@@ -41,8 +42,14 @@ export type WhatsAppMediaShareParams = {
   forceDialog?: boolean;
 };
 
+const SHARE_TIMEOUT_MS = 12_000;
+
 function ensureFileUrl(uri: string): string {
-  if (uri.startsWith('data:') || uri.startsWith('file://') || uri.startsWith('content://')) {
+  if (
+    uri.startsWith('data:') ||
+    uri.startsWith('file://') ||
+    uri.startsWith('content://')
+  ) {
     return uri;
   }
   return `file://${uri}`;
@@ -69,9 +76,36 @@ function extensionForMime(type: string): string {
   return 'bin';
 }
 
+function isPdfShare(type: string, url: string): boolean {
+  return type === 'application/pdf' || url.toLowerCase().includes('.pdf');
+}
+
+function withTimeout<T>(
+  promise: Promise<T>,
+  ms: number,
+  timeoutMessage: string
+): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(timeoutMessage)), ms);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timer);
+        reject(error);
+      }
+    );
+  });
+}
+
 /**
  * Put the file under cache/Download with a stable extension (Android FileProvider
  * + iOS WhatsApp document share both prefer a real on-disk file:// URI).
+ *
+ * Skip re-copy when the file is already a local path with a real extension —
+ * catalogue PDFs can be 50–150 MB and copying twice made Send look "stuck".
  */
 async function prepareShareableFileUrl(
   url: string,
@@ -92,11 +126,8 @@ async function prepareShareableFileUrl(
     throw new Error('Share file is empty or incomplete.');
   }
 
-  // Already under cache/Download with a real extension — reuse.
-  if (
-    /\/Download\/[^/]+\.(pdf|png|jpe?g|webp|gif)$/i.test(fileUri) &&
-    fileUri.includes(FileSystem.cacheDirectory ?? '___')
-  ) {
+  // Already a real local file with extension — share in place (no multi-MB copy).
+  if (/\.(pdf|png|jpe?g|webp|gif)$/i.test(fileUri)) {
     return fileUri.startsWith('file://') ? fileUri : `file://${fileUri}`;
   }
 
@@ -128,11 +159,35 @@ async function prepareShareableFileUrl(
 }
 
 /**
+ * iOS cannot attach files to WhatsApp without the system share / Open In sheet
+ * (Messages vs WhatsApp). Always open the customer chat directly instead.
+ */
+async function openIosWhatsAppChat(params: {
+  phone: string;
+  appKind: WhatsAppAppKind;
+  title: string;
+  message?: string;
+  targetPhone: boolean;
+}): Promise<void> {
+  if (!params.targetPhone) {
+    // Follow-up attach would show Messages vs WhatsApp — skip it.
+    return;
+  }
+
+  const text =
+    params.message?.trim() ||
+    params.title.trim() ||
+    '🙏 Shared from Ganeshay';
+
+  await openDeviceWhatsAppApp(params.phone, text, params.appKind);
+}
+
+/**
  * Share a single file to WhatsApp / WhatsApp Business (Android + iOS).
  *
- * Android: native module with `url` only (no `urls` / SEND_MULTIPLE).
- * iOS: Share.shareSingle with prepared file:// URI + whatsAppNumber.
- * Both open the customer chat when targetPhone is true.
+ * Android: native package Intent — opens WhatsApp directly with the file.
+ * iOS: open the customer WhatsApp chat directly (no Messages/WhatsApp sheet).
+ *      iOS has no public API to attach a PDF/image to WhatsApp without that sheet.
  */
 export async function shareWhatsAppMedia(
   params: WhatsAppMediaShareParams
@@ -141,44 +196,47 @@ export async function shareWhatsAppMedia(
   const targetPhone = params.targetPhone !== false;
   const message = params.message?.trim() ? params.message : undefined;
   const filename = filenameWithoutExtension(params.filename, params.type);
+
+  if (Platform.OS === 'ios') {
+    await openIosWhatsAppChat({
+      phone: params.phone,
+      appKind: params.appKind,
+      title: params.title,
+      message,
+      targetPhone,
+    });
+    return;
+  }
+
   const url = await prepareShareableFileUrl(
     params.url,
     params.type,
     params.filename
   );
 
-  if (Platform.OS === 'android') {
-    // Bypass normalizeSingleShareOptions (url → urls / SEND_MULTIPLE).
-    const NativeRNShare =
-      TurboModuleRegistry.getEnforcing<RNShareNativeModule>('RNShare');
+  // Android: bypass normalizeSingleShareOptions (url → urls / SEND_MULTIPLE).
+  const NativeRNShare =
+    TurboModuleRegistry.getEnforcing<RNShareNativeModule>('RNShare');
 
-    const options: Record<string, unknown> = {
-      title: params.title,
-      social,
-      url,
-      type: params.type,
-      useInternalStorage: true,
-    };
-    if (filename) options.filename = filename;
-    if (message) options.message = message;
-    if (targetPhone) options.whatsAppNumber = params.phone;
-    if (params.forceDialog) {
-      options.forceDialog = true;
-    }
-
-    await NativeRNShare.shareSingle(options);
-    return;
-  }
-
-  // iOS — same customer-targeted document/image share as Android.
-  await Share.shareSingle({
+  const options: Record<string, unknown> = {
     title: params.title,
     social,
     url,
     type: params.type,
-    ...(filename ? { filename } : {}),
-    ...(message ? { message } : {}),
-    ...(targetPhone ? { whatsAppNumber: params.phone } : {}),
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  } as any);
+    useInternalStorage: true,
+  };
+  if (filename) options.filename = filename;
+  if (message) options.message = message;
+  if (targetPhone) options.whatsAppNumber = params.phone;
+  // Never use forceDialog for the default path — that shows a system chooser
+  // (Messages / WhatsApp). Only when the caller explicitly requests it.
+  if (params.forceDialog) {
+    options.forceDialog = true;
+  }
+
+  await withTimeout(
+    NativeRNShare.shareSingle(options),
+    SHARE_TIMEOUT_MS,
+    'WhatsApp share timed out. Please try again.'
+  );
 }

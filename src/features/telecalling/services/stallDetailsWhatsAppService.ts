@@ -124,18 +124,9 @@ async function shareAndroidMessageThenBanner(params: {
       });
     } catch (pdfError) {
       if (isUserCancelledShare(pdfError)) return;
-      try {
-        const Sharing = await import('expo-sharing');
-        if (await Sharing.isAvailableAsync()) {
-          await Sharing.shareAsync(params.pdfUri, {
-            mimeType: 'application/pdf',
-            dialogTitle: 'Catalog PDF — choose WhatsApp',
-            UTI: 'com.adobe.pdf',
-          });
-        }
-      } catch (fallbackError) {
-        console.warn('Murties PDF follow-up share failed', fallbackError);
-      }
+      // Never use expo-sharing / system share sheet — on iOS it shows
+      // Messages vs WhatsApp. Prefer staying in the already-open chat.
+      console.warn('Murties PDF follow-up share failed', pdfError);
     }
   }
 }
@@ -165,16 +156,7 @@ async function shareAndroidMessageThenPdf(params: {
     });
   } catch (attachError) {
     if (isUserCancelledShare(attachError)) throw attachError;
-    // Skip no-jid share — it often "succeeds" while dropping the PDF.
-    const Sharing = await import('expo-sharing');
-    if (await Sharing.isAvailableAsync()) {
-      await Sharing.shareAsync(params.pdfUri, {
-        mimeType: 'application/pdf',
-        dialogTitle: 'Catalog PDF — choose WhatsApp',
-        UTI: 'com.adobe.pdf',
-      });
-      return;
-    }
+    // Do not fall back to the system share sheet (Messages vs WhatsApp).
     throw attachError;
   }
 }
@@ -215,7 +197,8 @@ export interface StallDetailsShareRecipient {
  * message, attaches the settings banner image (primary), then optional PDF.
  *
  * Android: message via package intent, then banner via single-file ACTION_SEND.
- * iOS: message + image when possible; two-step on failure.
+ * iOS: open WhatsApp chat with prefilled message only (no system share sheet —
+ *      that sheet shows Messages vs WhatsApp).
  */
 export async function shareStallDetailsOnWhatsApp(
   recipient: StallDetailsShareRecipient,
@@ -283,6 +266,14 @@ export async function shareStallDetailsOnWhatsApp(
   }
 
   const runShare = async (appKind: WhatsAppAppKind) => {
+    // iOS: open WhatsApp chat directly via URL scheme only.
+    // Do not use shareSingle / expo-sharing for media — both present the
+    // system "Open In" / share sheet with Messages and WhatsApp.
+    if (Platform.OS === 'ios') {
+      await openDeviceWhatsAppApp(phone, message, appKind);
+      return;
+    }
+
     // Message only (no banner): open chat with prefilled text, then PDF.
     if (!shareableBanner) {
       if (shareablePdfUri) {
@@ -299,7 +290,7 @@ export async function shareStallDetailsOnWhatsApp(
       return;
     }
 
-    // Banner + message (+ optional PDF) — same sequence on Android and iOS.
+    // Banner + message (+ optional PDF) — Android sequence.
     await shareAndroidMessageThenBanner({
       phone,
       message,
@@ -329,32 +320,33 @@ export async function shareStallDetailsOnWhatsApp(
     // Last resort: always get the message into the chat; retry banner if possible.
     try {
       await openDeviceWhatsAppApp(phone, message, installedApp);
-      if (shareableBanner) {
+      // iOS: never present the system share / Open In sheet (Messages vs WhatsApp).
+      if (Platform.OS === 'ios' || !shareableBanner) return;
+
+      await delay(ANDROID_STEP_DELAY_MS);
+      await shareMediaOnly({
+        phone,
+        appKind: installedApp,
+        url: shareableBanner.uri,
+        type: shareableBanner.type,
+        filename: bannerFilename(shareableBanner.type),
+        // Prefer current chat after openDeviceWhatsAppApp on both platforms.
+        targetPhone: false,
+      });
+      if (shareablePdfUri) {
         await delay(ANDROID_STEP_DELAY_MS);
-        await shareMediaOnly({
-          phone,
-          appKind: installedApp,
-          url: shareableBanner.uri,
-          type: shareableBanner.type,
-          filename: bannerFilename(shareableBanner.type),
-          // Prefer current chat after openDeviceWhatsAppApp on both platforms.
-          targetPhone: false,
-        });
-        if (shareablePdfUri) {
-          await delay(ANDROID_STEP_DELAY_MS);
-          try {
-            await shareMediaOnly({
-              phone,
-              appKind: installedApp,
-              url: shareablePdfUri,
-              type: 'application/pdf',
-              filename: 'Ganesha_Murties_Catalog.pdf',
-              targetPhone: true,
-            });
-          } catch (pdfError) {
-            if (isUserCancelledShare(pdfError)) return;
-            console.warn('Murties PDF follow-up share failed', pdfError);
-          }
+        try {
+          await shareMediaOnly({
+            phone,
+            appKind: installedApp,
+            url: shareablePdfUri,
+            type: 'application/pdf',
+            filename: 'Ganesha_Murties_Catalog.pdf',
+            targetPhone: true,
+          });
+        } catch (pdfError) {
+          if (isUserCancelledShare(pdfError)) return;
+          console.warn('Murties PDF follow-up share failed', pdfError);
         }
       }
     } catch (fallbackError) {

@@ -158,8 +158,12 @@ export function useReceipt() {
     sendInFlight.current = true;
     setActiveAction('whatsapp-pdf');
     try {
-      // Always regenerate so murti photo / latest booking data is in the PDF.
-      const pdfUri = await getOrCreatePdf(booking, true);
+      // Use cache when available — regenerating every tap made Send look stuck.
+      // Cache is invalidated on booking edit via invalidatePdf.
+      const pdfUri = await getOrCreatePdf(booking, false);
+      // Clear spinner before WhatsApp opens so the button doesn't spin forever
+      // while the share sheet / WhatsApp activity is active.
+      setActiveAction(null);
       await shareNewBookingInvoicePdfOnWhatsApp(booking, pdfUri);
     } catch (error) {
       // getOrCreatePdf / shareNewBookingInvoicePdfOnWhatsApp already Alert.

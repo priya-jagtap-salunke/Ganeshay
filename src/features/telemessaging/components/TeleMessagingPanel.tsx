@@ -108,72 +108,59 @@ export function TeleMessagingPanel() {
     }
   };
 
+  const sendPredraft = async (contact: TelecallingContact) => {
+    setSendingId(contact.id);
+    try {
+      await sharePredraftedMessageOnWhatsApp(
+        {
+          mobile: contact.mobile,
+          customerName: contact.name,
+        },
+        settings
+      );
+      await markSent(contact, 'predraft');
+    } catch (error) {
+      if (!getErrorMessage(error).toLowerCase().includes('cancel')) {
+        Alert.alert(
+          'WhatsApp Failed',
+          getErrorMessage(error) || 'Could not open WhatsApp.'
+        );
+      }
+    } finally {
+      setSendingId(null);
+    }
+  };
+
+  const sendCatalogue = async (contact: TelecallingContact) => {
+    setSendingId(contact.id);
+    try {
+      await shareCatalogOnWhatsApp(
+        {
+          mobile: contact.mobile,
+          customerName: contact.name,
+        },
+        settings
+      );
+      await markSent(contact, 'catalog');
+    } catch (error) {
+      if (!getErrorMessage(error).toLowerCase().includes('cancel')) {
+        Alert.alert(
+          'WhatsApp Failed',
+          getErrorMessage(error) || 'Could not share catalogue.'
+        );
+      }
+    } finally {
+      setSendingId(null);
+    }
+  };
+
+  /** Open WhatsApp immediately — no Messages / details-vs-catalogue chooser. */
   const handleSendWhatsApp = (contact: TelecallingContact) => {
-    Alert.alert('Send WhatsApp', `Choose what to send to ${contact.name}`, [
-      {
-        text: 'Send details',
-        onPress: () => {
-          void (async () => {
-            setSendingId(contact.id);
-            try {
-              await sharePredraftedMessageOnWhatsApp(
-                {
-                  mobile: contact.mobile,
-                  customerName: contact.name,
-                },
-                settings
-              );
-              await markSent(contact, 'predraft');
-            } catch (error) {
-              if (
-                !getErrorMessage(error)
-                  .toLowerCase()
-                  .includes('cancel')
-              ) {
-                Alert.alert(
-                  'WhatsApp Failed',
-                  getErrorMessage(error) || 'Could not open WhatsApp.'
-                );
-              }
-            } finally {
-              setSendingId(null);
-            }
-          })();
-        },
-      },
-      {
-        text: 'Send catalogue',
-        onPress: () => {
-          void (async () => {
-            setSendingId(contact.id);
-            try {
-              await shareCatalogOnWhatsApp(
-                {
-                  mobile: contact.mobile,
-                  customerName: contact.name,
-                },
-                settings
-              );
-              await markSent(contact, 'catalog');
-            } catch (error) {
-              if (
-                !getErrorMessage(error)
-                  .toLowerCase()
-                  .includes('cancel')
-              ) {
-                Alert.alert(
-                  'WhatsApp Failed',
-                  getErrorMessage(error) || 'Could not share catalogue.'
-                );
-              }
-            } finally {
-              setSendingId(null);
-            }
-          })();
-        },
-      },
-      { text: 'Cancel', style: 'cancel' },
-    ]);
+    void sendPredraft(contact);
+  };
+
+  const handleSendCatalogue = (contact: TelecallingContact) => {
+    void sendCatalogue(contact);
   };
 
   if (isLoading && !contacts) {
@@ -239,6 +226,8 @@ export function TeleMessagingPanel() {
               contact={item}
               index={index}
               onSendWhatsApp={() => handleSendWhatsApp(item)}
+              onSendCatalogue={() => handleSendCatalogue(item)}
+              showCatalogue={Boolean(settings.murtiesPdfUri)}
               sending={sendingId === item.id}
             />
           )}

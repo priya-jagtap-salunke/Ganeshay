@@ -17,6 +17,8 @@ interface TeleMessagingContactRowProps {
   contact: TelecallingContact;
   index?: number;
   onSendWhatsApp: () => void;
+  onSendCatalogue?: () => void;
+  showCatalogue?: boolean;
   sending?: boolean;
 }
 
@@ -46,6 +48,8 @@ export function TeleMessagingContactRow({
   contact,
   index = 0,
   onSendWhatsApp,
+  onSendCatalogue,
+  showCatalogue,
   sending,
 }: TeleMessagingContactRowProps) {
   const theme = useTheme();
@@ -131,8 +135,23 @@ export function TeleMessagingContactRow({
             labelStyle={styles.actionLabel}
             accessibilityLabel={`Send WhatsApp to ${contact.name}`}
           >
-            Send WhatsApp
+            Send
           </AppButton>
+          {showCatalogue && onSendCatalogue ? (
+            <AppButton
+              icon="file-pdf-box"
+              variant="tonal"
+              onPress={onSendCatalogue}
+              loading={sending}
+              compact
+              style={styles.actionBtn}
+              contentStyle={styles.actionContent}
+              labelStyle={styles.actionLabel}
+              accessibilityLabel={`Send catalogue to ${contact.name}`}
+            >
+              Catalogue
+            </AppButton>
+          ) : null}
         </View>
       </View>
     </Animated.View>

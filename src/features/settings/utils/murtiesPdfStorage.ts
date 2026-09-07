@@ -91,6 +91,18 @@ export async function persistMurtiesPdf(
     throw new Error('Could not save the catalog PDF.');
   }
 
+  // Drop any cached share copy so the next Send uses this upload.
+  try {
+    const cacheDir = FileSystem.cacheDirectory;
+    if (cacheDir) {
+      await FileSystem.deleteAsync(`${cacheDir}Download/murties-catalog-share.pdf`, {
+        idempotent: true,
+      });
+    }
+  } catch {
+    // ignore cache cleanup failures
+  }
+
   return { uri: dest, name: fileName };
 }
 
@@ -110,6 +122,19 @@ export async function removeMurtiesPdf(storedUri: string | null): Promise<void> 
 export async function ensureShareableMurtiesPdfUri(
   storedUri: string
 ): Promise<string> {
+  // Already a local file — share in place. Large catalogues (50–150 MB) must
+  // not be copied on every Send; that made the button spin for a long time.
+  if (!storedUri.startsWith('data:')) {
+    const info = await FileSystem.getInfoAsync(storedUri);
+    if (!info.exists || info.isDirectory) {
+      throw new Error('Murties PDF file was not found on device.');
+    }
+    if (typeof info.size === 'number' && info.size < 64) {
+      throw new Error('Could not create a shareable murties PDF file.');
+    }
+    return storedUri.startsWith('file://') ? storedUri : `file://${storedUri}`;
+  }
+
   const cacheDir = FileSystem.cacheDirectory;
   if (!cacheDir) {
     throw new Error('File storage is unavailable on this device.');
@@ -121,23 +146,26 @@ export async function ensureShareableMurtiesPdfUri(
   } catch {
     // May already exist.
   }
-  const dest = `${downloadDir}murties-catalog-share-${Date.now()}.pdf`;
 
-  if (storedUri.startsWith('data:')) {
-    const base64 = storedUri.split(',')[1] ?? '';
-    if (!base64) {
-      throw new Error('Murties PDF data is empty.');
-    }
-    await FileSystem.writeAsStringAsync(dest, base64, {
-      encoding: FileSystem.EncodingType.Base64,
-    });
-  } else {
-    const info = await FileSystem.getInfoAsync(storedUri);
-    if (!info.exists) {
-      throw new Error('Murties PDF file was not found on device.');
-    }
-    await FileSystem.copyAsync({ from: storedUri, to: dest });
+  // Stable path so we rewrite data: URIs only once (not every Send).
+  const dest = `${downloadDir}murties-catalog-share.pdf`;
+  const existing = await FileSystem.getInfoAsync(dest);
+  if (
+    existing.exists &&
+    !existing.isDirectory &&
+    typeof existing.size === 'number' &&
+    existing.size >= 64
+  ) {
+    return dest.startsWith('file://') ? dest : `file://${dest}`;
   }
+
+  const base64 = storedUri.split(',')[1] ?? '';
+  if (!base64) {
+    throw new Error('Murties PDF data is empty.');
+  }
+  await FileSystem.writeAsStringAsync(dest, base64, {
+    encoding: FileSystem.EncodingType.Base64,
+  });
 
   const shared = await FileSystem.getInfoAsync(dest);
   if (!shared.exists || (typeof shared.size === 'number' && shared.size < 64)) {
