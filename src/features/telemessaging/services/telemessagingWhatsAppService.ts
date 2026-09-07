@@ -58,8 +58,8 @@ function resolveCatalogSettings(
 }
 
 /**
- * Share the Settings catalog PDF into the customer's WhatsApp chat.
- * Android + iOS: PDF attached in the customer chat (same behavior).
+ * Share the Settings catalog into the customer's WhatsApp chat.
+ * Android: PDF Intent attach. iOS: native PDF→image (WhatsApp-only, no Message ask).
  */
 async function shareCatalogPdfFile(params: {
   phone: string;
@@ -69,7 +69,7 @@ async function shareCatalogPdfFile(params: {
 }): Promise<void> {
   const { phone, appKind, pdfUri, filename } = params;
 
-  // Never use forceDialog for catalogue — that shows Messages vs WhatsApp.
+  // Never use forceDialog — that shows Messages vs WhatsApp.
   await shareWhatsAppMedia({
     title: 'Ganesh Murti Catalog',
     phone,
@@ -77,7 +77,7 @@ async function shareCatalogPdfFile(params: {
     url: pdfUri,
     type: 'application/pdf',
     filename,
-    // Critical: no message — caption/text path drops the PDF or sends text only.
+    // Critical: no message — caption/text path drops the file.
     targetPhone: true,
     forceDialog: false,
   });
@@ -131,7 +131,8 @@ export async function sharePredraftedMessageOnWhatsApp(
 
 /**
  * Tele-Messaging → Send catalogue:
- * Opens WhatsApp for the customer with the Settings catalogue PDF attached.
+ * Opens WhatsApp for the customer with the Settings catalogue attached
+ * (PDF on Android; WhatsApp image of pages on iOS — no chooser / no spinner).
  */
 export async function shareCatalogOnWhatsApp(
   recipient: TeleMessagingShareRecipient,
@@ -197,21 +198,19 @@ export async function shareCatalogOnWhatsApp(
   } catch (error) {
     if (isUserCancelledShare(error)) return;
 
-    // One Android retry with the alternate WhatsApp app (consumer ↔ business).
-    if (Platform.OS === 'android') {
-      const alternate: WhatsAppAppKind =
-        installedApp === 'consumer' ? 'business' : 'consumer';
-      try {
-        await shareCatalogPdfFile({
-          phone,
-          appKind: alternate,
-          pdfUri: shareablePdfUri,
-          filename,
-        });
-        return;
-      } catch (retryError) {
-        if (isUserCancelledShare(retryError)) return;
-      }
+    // Retry alternate WhatsApp app (consumer ↔ business) — same as Android.
+    const alternate: WhatsAppAppKind =
+      installedApp === 'consumer' ? 'business' : 'consumer';
+    try {
+      await shareCatalogPdfFile({
+        phone,
+        appKind: alternate,
+        pdfUri: shareablePdfUri,
+        filename,
+      });
+      return;
+    } catch (retryError) {
+      if (isUserCancelledShare(retryError)) return;
     }
 
     console.warn('Catalogue WhatsApp share failed', error);

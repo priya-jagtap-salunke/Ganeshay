@@ -646,8 +646,8 @@ export async function shareNewBookingDetailsOnWhatsApp(
 }
 
 /**
- * New Booking / booking detail — share the invoice receipt PDF into the
- * customer's WhatsApp chat (PDF attached, ready to send).
+ * New Booking / booking detail — share invoice into the customer's WhatsApp.
+ * Android: PDF Intent. iOS: receipt PNG (WhatsApp-only attach, no Message picker).
  */
 export async function shareNewBookingInvoicePdfOnWhatsApp(
   booking: Booking,
@@ -675,6 +675,33 @@ export async function shareNewBookingInvoicePdfOnWhatsApp(
   if (!appKind) {
     showWhatsAppMissingAlert();
     return;
+  }
+
+  // iOS: share receipt image (net.whatsapp.image) — opens WhatsApp directly,
+  // same reliability as tele-calling banners. PDF Open In shows Message vs WhatsApp.
+  if (Platform.OS === 'ios') {
+    try {
+      const settings = selectBusinessDocumentSettings(
+        useSettingsStore.getState()
+      );
+      const { generateReceiptShareImage } = await import('./receiptService');
+      const imageUri = await generateReceiptShareImage(booking, settings);
+      await shareWhatsAppMedia({
+        title: `Receipt ${booking.booking_number}`,
+        phone,
+        appKind,
+        url: imageUri,
+        type: 'image/png',
+        filename: `Receipt_${booking.booking_number}.png`,
+        targetPhone: true,
+      });
+      return;
+    } catch (imageError) {
+      console.warn(
+        'iOS invoice image share failed; falling back to PDF path',
+        imageError
+      );
+    }
   }
 
   let shareablePdfUri: string;

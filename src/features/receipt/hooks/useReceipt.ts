@@ -1,7 +1,8 @@
 import { useState, useCallback, useRef } from 'react';
-import { Alert } from 'react-native';
+import { Alert, Platform } from 'react-native';
 import {
   generateReceiptPdf,
+  generateReceiptShareImage,
   downloadReceiptPdf,
   shareReceipt,
   shareReceiptViaWhatsApp,
@@ -13,7 +14,9 @@ import {
   shareNewBookingInvoicePdfOnWhatsApp,
 } from '../services/whatsappService';
 import {
+  selectBusinessDocumentSettings,
   useBusinessDocumentSettings,
+  useSettingsStore,
 } from '@/features/settings/store/settingsStore';
 import { Booking } from '@/types/booking';
 import { getErrorMessage } from '@/utils/errors';
@@ -59,7 +62,7 @@ export function useReceipt() {
     [settings]
   );
 
-  /** Warm invoice PDF without a loading overlay. */
+  /** Warm invoice PDF (+ iOS receipt image) without a loading overlay. */
   const prefetchPdf = useCallback(
     (booking: Booking) => {
       if (prefetchInFlight.current.has(booking.id)) return;
@@ -71,6 +74,15 @@ export function useReceipt() {
         .finally(() => {
           prefetchInFlight.current.delete(booking.id);
         });
+      // iOS invoice share uses PNG — warm it so Send feels instant (no spinner).
+      if (Platform.OS === 'ios') {
+        const docSettings = selectBusinessDocumentSettings(
+          useSettingsStore.getState()
+        );
+        void generateReceiptShareImage(booking, docSettings).catch((error) => {
+          console.warn('Receipt image prefetch failed', error);
+        });
+      }
     },
     [settings]
   );
@@ -153,11 +165,16 @@ export function useReceipt() {
     }
   };
 
-  /** New Booking / booking detail — invoice PDF only (no loading spinner). */
+  /** New Booking / booking detail — invoice to WhatsApp (no loading spinner). */
   const shareInvoicePdfOnWhatsApp = async (booking: Booking) => {
     if (sendInFlight.current) return;
     sendInFlight.current = true;
     try {
+      // iOS: share receipt image (no PDF wait). Android: silent PDF attach.
+      if (Platform.OS === 'ios') {
+        await shareNewBookingInvoicePdfOnWhatsApp(booking, '');
+        return;
+      }
       const pdfUri = await getOrCreatePdf(booking, false, { silent: true });
       await shareNewBookingInvoicePdfOnWhatsApp(booking, pdfUri);
     } catch (error) {

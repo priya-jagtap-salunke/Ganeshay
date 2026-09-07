@@ -19,8 +19,6 @@ export default function NewBookingScreen() {
     shareBookingDetailsOnWhatsApp,
     shareInvoicePdfOnWhatsApp,
     prefetchPdf,
-    isBusy,
-    activeAction,
   } = useReceipt();
   const [saving, setSaving] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
@@ -65,12 +63,13 @@ export default function NewBookingScreen() {
   };
 
   const handleShareBookingDetails = async () => {
-    if (!savedBooking || isBusy) return;
+    if (!savedBooking) return;
     await shareBookingDetailsOnWhatsApp(savedBooking);
   };
 
   const handleShareInvoicePdf = async () => {
-    if (!savedBooking || isBusy) return;
+    // Never gate on isBusy — invoice share must open WhatsApp with no spinner.
+    if (!savedBooking) return;
     await shareInvoicePdfOnWhatsApp(savedBooking);
   };
 
@@ -88,7 +87,7 @@ export default function NewBookingScreen() {
         />
       </ScrollView>
 
-      <LoadingOverlay visible={saving || (isBusy && activeAction === 'whatsapp-pdf')} />
+      <LoadingOverlay visible={saving} />
 
       <SuccessDialog
         visible={showSuccess}
@@ -96,8 +95,8 @@ export default function NewBookingScreen() {
         message="Your booking has been saved successfully."
         onShareBookingDetails={handleShareBookingDetails}
         onShareInvoicePdf={handleShareInvoicePdf}
-        bookingDetailsLoading={isBusy && activeAction === 'whatsapp-details'}
-        invoicePdfLoading={isBusy && activeAction === 'whatsapp-pdf'}
+        bookingDetailsLoading={false}
+        invoicePdfLoading={false}
         onConfirm={handleSuccessConfirm}
       />
     </ScreenContainer>
