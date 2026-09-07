@@ -8,14 +8,16 @@ export function buildReceiptHtml(
   settings: BusinessDocumentSettings,
   qrMarkup: string,
   logoMarkup: string,
-  forNativePdf = false
+  forNativePdf = false,
+  murtiPhotoMarkup = ''
 ): string {
   const body = buildReceiptHtmlBody(
     booking,
     settings,
     qrMarkup,
     logoMarkup,
-    forNativePdf
+    forNativePdf,
+    murtiPhotoMarkup
   );
 
   if (forNativePdf) {

@@ -18,6 +18,7 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { BookingCard } from '@/features/bookings/components/BookingCard';
 import { DashboardSection } from '@/features/dashboard/components/DashboardSection';
 import { useTodayBookings } from '@/features/bookings/hooks/useTodayBookings';
+import { useBookedAgainIds } from '@/features/bookings/hooks/useBookedAgainIds';
 import { useBusinessDocumentSettings } from '@/features/settings/store/settingsStore';
 import { Booking } from '@/types/booking';
 import { openBookingDetails } from '@/utils/bookingNavigation';
@@ -137,6 +138,7 @@ export default function DashboardScreen() {
   const theme = useTheme();
   const { width: screenWidth } = useWindowDimensions();
   const { data: todayBookings } = useTodayBookings();
+  const { data: bookedAgainIds } = useBookedAgainIds();
   const { businessName } = useBusinessDocumentSettings();
 
   const gridGap = spacing.sm;
@@ -261,6 +263,13 @@ export default function DashboardScreen() {
                 onPress={() => router.push('/(app)/telecalling' as Href)}
               />
               <QuickAction
+                icon="whatsapp"
+                label="Tele-Messaging"
+                color={theme.colors.primary}
+                width={actionWidth}
+                onPress={() => router.push('/(app)/telemessaging' as Href)}
+              />
+              <QuickAction
                 icon="cog"
                 label="Settings"
                 color={theme.colors.onSurfaceVariant}
@@ -307,6 +316,7 @@ export default function DashboardScreen() {
                     key={booking.id}
                     booking={booking}
                     index={i}
+                    bookedAgain={bookedAgainIds?.has(booking.id) ?? false}
                     onPress={() =>
                       openBookingDetails(router, booking.id, 'dashboard')
                     }

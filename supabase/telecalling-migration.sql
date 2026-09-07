@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS telecalling_contacts (
     CHECK (call_status IN (
       'pending',
       'connected',
+      'callback',
       'no_answer',
       'disconnected',
       'busy',
@@ -89,6 +90,7 @@ CREATE TABLE IF NOT EXISTS telecalling_call_logs (
   outcome TEXT NOT NULL
     CHECK (outcome IN (
       'connected',
+      'callback',
       'no_answer',
       'disconnected',
       'busy',
@@ -211,6 +213,7 @@ BEGIN
       CHECK (call_status IN (
         'pending',
         'connected',
+        'callback',
         'no_answer',
         'disconnected',
         'busy',
@@ -254,6 +257,7 @@ BEGIN
         ADD CONSTRAINT telecalling_call_logs_outcome_check
         CHECK (outcome IN (
           'connected',
+          'callback',
           'no_answer',
           'disconnected',
           'busy',

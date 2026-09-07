@@ -5,6 +5,7 @@ export function useTodayBookings() {
   return useQuery({
     queryKey: ['bookings', 'today'],
     queryFn: fetchTodayBookings,
-    refetchInterval: 60_000,
+    staleTime: 60_000,
+    refetchInterval: 3 * 60_000,
   });
 }

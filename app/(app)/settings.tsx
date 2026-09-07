@@ -4,7 +4,7 @@ import { SettingsForm } from '@/features/settings/components/SettingsForm';
 
 export default function SettingsScreen() {
   return (
-    <ScreenContainer title="Settings">
+    <ScreenContainer title="Settings" compactHeader>
       <ScrollView>
         <SettingsForm />
       </ScrollView>

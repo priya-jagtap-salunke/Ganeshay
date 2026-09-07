@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
+import { Platform, StyleSheet } from 'react-native';
 import { Stack, useRouter, useSegments, type Href } from 'expo-router';
 import { PaperProvider } from 'react-native-paper';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
-import { StyleSheet } from 'react-native';
 import * as SplashScreen from 'expo-splash-screen';
 import { queryClient } from '@/lib/queryClient';
 import { paperTheme } from '@/theme/paperTheme';
@@ -15,8 +15,14 @@ import { useVendorBootstrap } from '@/features/vendor/hooks/useVendorBootstrap';
 import { usePasswordRecoveryLink } from '@/features/auth/hooks/usePasswordRecoveryLink';
 import { fetchIsSuperAdmin } from '@/features/admin/api/adminApi';
 import { isAdminPortalAvailable } from '@/utils/platform';
+import { recoverMurtiPhotoPickerAfterActivityRestart } from '@/features/bookings/utils/murtiPhotoPickerSession';
+import { ReceiptImageCaptureHost } from '@/features/receipt/components/ReceiptImageCaptureHost';
 
-SplashScreen.preventAutoHideAsync();
+SplashScreen.preventAutoHideAsync().catch(() => {});
+
+function hideSplash() {
+  void SplashScreen.hideAsync().catch(() => {});
+}
 
 function isLandingRoute(segments: string[]): boolean {
   const root = segments[0];
@@ -26,6 +32,7 @@ function isLandingRoute(segments: string[]): boolean {
 function AuthGuard({ children }: { children: React.ReactNode }) {
   const { session, isLoading, setSession, passwordRecoveryPending, setPasswordRecoveryPending } =
     useAuthStore();
+  const setLoading = useAuthStore((state) => state.setLoading);
   const vendor = useVendorStore((state) => state.vendor);
   const vendorLoading = useVendorStore((state) => state.isLoading);
   const portal = usePortalStore((state) => state.portal);
@@ -48,7 +55,12 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
     if (usePortalStore.persist.hasHydrated()) {
       setPortalReady(true);
     }
-    return unsub;
+    // Never block the app forever if AsyncStorage hydration stalls.
+    const timeout = setTimeout(() => setPortalReady(true), 2500);
+    return () => {
+      unsub();
+      clearTimeout(timeout);
+    };
   }, []);
 
   // Native builds never keep an admin portal intent.
@@ -60,10 +72,45 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
   }, [portalReady, adminAvailable, portal, setPortal]);
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session: currentSession } }) => {
-      setSession(currentSession);
-      SplashScreen.hideAsync();
-    });
+    let cancelled = false;
+
+    // Always leave the splash screen even if SecureStore / network hangs.
+    const safety = setTimeout(() => {
+      if (cancelled) return;
+      setLoading(false);
+      hideSplash();
+    }, 4000);
+
+    const sessionProbe = Promise.race([
+      supabase.auth.getSession(),
+      new Promise<Awaited<ReturnType<typeof supabase.auth.getSession>>>(
+        (resolve) => {
+          setTimeout(
+            () =>
+              resolve({
+                data: { session: null },
+                error: null,
+              } as Awaited<ReturnType<typeof supabase.auth.getSession>>),
+            3500
+          );
+        }
+      ),
+    ]);
+
+    sessionProbe
+      .then(({ data: { session: currentSession } }) => {
+        if (cancelled) return;
+        setSession(currentSession);
+      })
+      .catch((error) => {
+        console.warn('Auth session restore failed', error);
+        if (cancelled) return;
+        setSession(null);
+      })
+      .finally(() => {
+        hideSplash();
+        clearTimeout(safety);
+      });
 
     const {
       data: { subscription },
@@ -75,8 +122,12 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
       }
     });
 
-    return () => subscription.unsubscribe();
-  }, [setSession, setPasswordRecoveryPending, router]);
+    return () => {
+      cancelled = true;
+      clearTimeout(safety);
+      subscription.unsubscribe();
+    };
+  }, [setSession, setPasswordRecoveryPending, setLoading, router]);
 
   useEffect(() => {
     if (!session) {
@@ -208,6 +259,40 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
     router,
   ]);
 
+  // Android may kill MainActivity while the system camera is open. On restart the
+  // stack resets to Home — restore the booking screen (and pending murti photo).
+  useEffect(() => {
+    if (Platform.OS !== 'android') return;
+    if (isLoading || !portalReady || !session || vendorLoading || !vendor) return;
+    if (passwordRecoveryPending) return;
+
+    let cancelled = false;
+
+    (async () => {
+      const recovered = await recoverMurtiPhotoPickerAfterActivityRestart();
+      if (cancelled || !recovered) return;
+
+      if (recovered.session.returnTo === 'booking-edit' && recovered.session.bookingId) {
+        router.replace(`/(app)/booking/edit/${recovered.session.bookingId}`);
+        return;
+      }
+
+      router.replace('/(app)/booking/new');
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    isLoading,
+    portalReady,
+    session,
+    vendorLoading,
+    vendor,
+    passwordRecoveryPending,
+    router,
+  ]);
+
   return <>{children}</>;
 }
 
@@ -218,6 +303,8 @@ export default function RootLayout() {
         <PaperProvider theme={paperTheme}>
           <AuthGuard>
             <Stack screenOptions={{ headerShown: false }} />
+            {/* Off-screen WebView: receipt HTML → PNG for Android WhatsApp. */}
+            <ReceiptImageCaptureHost />
           </AuthGuard>
         </PaperProvider>
       </QueryClientProvider>

@@ -67,7 +67,7 @@ async function requestAndroidCallLogPermission(): Promise<
   const result = await PermissionsAndroid.request(READ_CALL_LOG, {
     title: 'Call Log Access',
     message:
-      'Allow access to your call log so you can add recent callers to tele-calling.',
+      'Allow access to your call log to import recent callers and automatically move No Answer contacts to Call Back when they call you.',
     buttonPositive: 'Allow',
     buttonNegative: 'Not now',
   });
@@ -115,6 +115,54 @@ type NativeCallLogRow = {
   type?: string;
 };
 
+/** Incoming / missed from the other party (never outgoing). */
+export function isIncomingCallType(type: string): boolean {
+  const normalized = type.toUpperCase();
+  return (
+    normalized.includes('INCOMING') ||
+    normalized.includes('MISSED') ||
+    normalized.includes('REJECTED')
+  );
+}
+
+function mapNativeCallLogRows(
+  rows: NativeCallLogRow[],
+  options?: { dedupeByPhone?: boolean }
+): CallLogEntry[] {
+  const dedupe = options?.dedupeByPhone !== false;
+  const seen = new Set<string>();
+  const entries: CallLogEntry[] = [];
+
+  for (const row of rows) {
+    const phoneNumber = normalizePhoneNumber(row.phoneNumber ?? '');
+    if (!isValidIndianMobile(phoneNumber)) continue;
+    if (dedupe) {
+      if (seen.has(phoneNumber)) continue;
+      seen.add(phoneNumber);
+    }
+
+    entries.push({
+      phoneNumber,
+      name: row.name?.trim() || 'Unknown',
+      timestamp: Number(row.timestamp ?? 0),
+      duration: Number(row.duration ?? 0),
+      type: row.type ?? 'UNKNOWN',
+    });
+  }
+
+  return entries;
+}
+
+async function loadNativeCallLogs(limit: number): Promise<CallLogEntry[]> {
+  const CallLogs = (await import('react-native-call-log')).default;
+  const rows = (await CallLogs.load(limit)) as NativeCallLogRow[];
+  return mapNativeCallLogRows(rows, { dedupeByPhone: true });
+}
+
+/**
+ * Recent call logs for the picker (one row per number, newest first).
+ * Prompts for permission and alerts on denial.
+ */
 export async function fetchRecentCallLogs(
   limit = 40
 ): Promise<CallLogEntry[]> {
@@ -133,35 +181,39 @@ export async function fetchRecentCallLogs(
   }
 
   try {
-    const CallLogs = (await import('react-native-call-log')).default;
-    const rows = (await CallLogs.load(limit)) as NativeCallLogRow[];
-
-    const seen = new Set<string>();
-    const entries: CallLogEntry[] = [];
-
-    for (const row of rows) {
-      const phoneNumber = normalizePhoneNumber(row.phoneNumber ?? '');
-      if (!isValidIndianMobile(phoneNumber) || seen.has(phoneNumber)) {
-        continue;
-      }
-
-      seen.add(phoneNumber);
-      entries.push({
-        phoneNumber,
-        name: row.name?.trim() || 'Unknown',
-        timestamp: Number(row.timestamp ?? 0),
-        duration: Number(row.duration ?? 0),
-        type: row.type ?? 'UNKNOWN',
-      });
-    }
-
-    return entries;
+    return await loadNativeCallLogs(limit);
   } catch (error) {
     const message =
       error instanceof Error ? error.message : 'Could not read call logs';
     throw new Error(
       `${message}. Rebuild the Android app if call logs still do not load.`
     );
+  }
+}
+
+/**
+ * Quiet call-log read for auto Call Back detection.
+ * - Android only; returns [] on iOS / web / no permission / errors
+ * - Does not show permission alerts
+ * - Keeps every log row (no per-number dedupe) so type + timestamp stay accurate
+ */
+export async function fetchCallLogsForCallbackDetection(
+  limit = 120
+): Promise<CallLogEntry[]> {
+  if (!isCallLogSupported()) {
+    return [];
+  }
+
+  try {
+    if (!(await hasCallLogPermission())) {
+      return [];
+    }
+
+    const CallLogs = (await import('react-native-call-log')).default;
+    const rows = (await CallLogs.load(limit)) as NativeCallLogRow[];
+    return mapNativeCallLogRows(rows, { dedupeByPhone: false });
+  } catch {
+    return [];
   }
 }
 

@@ -9,6 +9,7 @@ import {
   Platform,
 } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
+import { useFocusEffect } from '@react-navigation/native';
 import { useQueryClient } from '@tanstack/react-query';
 import { AppButton } from '@/components/ui/AppButton';
 import { EmptyState } from '@/components/ui/EmptyState';
@@ -39,23 +40,32 @@ import { CallOutcomeModal } from './CallOutcomeModal';
 import { DeviceContactsPickerModal } from './DeviceContactsPickerModal';
 import { CallLogPickerModal } from './CallLogPickerModal';
 import {
+  CALLED_BACK_NOTE,
   CreateTelecallingContactInput,
   TelecallingCallOutcome,
   TelecallingContact,
   TelecallingFilterId,
   TELECALLING_FILTERS,
   contactMatchesFilter,
-  normalizeTelecallingStatus,
+  isNoAnswerBusyStatus,
+  resolveTelecallingStatus,
 } from '@/types/telecalling';
 import { mobileMatchesQuery, normalizeMobile } from '../utils/phoneNormalize';
 import { shareStallDetailsOnWhatsApp } from '../services/stallDetailsWhatsAppService';
-import { isCallLogSupported } from '../services/callLogService';
+import {
+  ensureCallLogPermission,
+  hasCallLogPermission,
+  isCallLogSupported,
+} from '../services/callLogService';
+import { detectIncomingCallbacks } from '../services/callbackAutoDetect';
 import { useSettingsStore } from '@/features/settings/store/settingsStore';
 import { getErrorMessage } from '@/utils/errors';
 import { colors } from '@/theme/colors';
 import { radius, spacing } from '@/theme/spacing';
 
 const OUTCOME_PROMPT_DELAY_MS = 600;
+/** How often to re-scan Android call log while Telecalling is open. */
+const CALLBACK_SCAN_INTERVAL_MS = 20_000;
 
 function confirmExcelFormatThenPick(): Promise<boolean> {
   return new Promise((resolve) => {
@@ -80,6 +90,7 @@ export function TelecallingPanel() {
   const [importing, setImporting] = useState(false);
   const [callingId, setCallingId] = useState<string | null>(null);
   const [sendingId, setSendingId] = useState<string | null>(null);
+  const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [outcomeContact, setOutcomeContact] =
     useState<TelecallingContact | null>(null);
   const [outcomeVisible, setOutcomeVisible] = useState(false);
@@ -88,12 +99,21 @@ export function TelecallingPanel() {
 
   const pendingOutcomeIdRef = useRef<string | null>(null);
   const appStateRef = useRef<AppStateStatus>(AppState.currentState);
+  const contactsRef = useRef<TelecallingContact[]>([]);
+  const callbackMovingRef = useRef<Set<string>>(new Set());
+  const callbackPermissionAskedRef = useRef(false);
+  const panelFocusedRef = useRef(false);
+  const scanningCallbacksRef = useRef(false);
 
   const isNativeMobile =
     Platform.OS === 'android' || Platform.OS === 'ios';
   const contactCount = contacts?.length ?? 0;
   const busy =
     importing || importMutation.isPending || deleteAllContacts.isPending;
+
+  useEffect(() => {
+    contactsRef.current = contacts ?? [];
+  }, [contacts]);
 
   const filteredContacts = useMemo(() => {
     const list: TelecallingContact[] = contacts ?? [];
@@ -106,7 +126,9 @@ export function TelecallingPanel() {
       if (mobile) seen.add(mobile);
       unique.push(c);
     }
-    return unique.filter((c) => contactMatchesFilter(c.call_status, filter));
+    return unique.filter((c) =>
+      contactMatchesFilter(c.call_status, filter, c.last_outcome_notes)
+    );
   }, [contacts, filter]);
 
   /** Tab filter first, then name/phone search — does not change underlying counts. */
@@ -136,7 +158,7 @@ export function TelecallingPanel() {
     for (const f of TELECALLING_FILTERS) {
       if (f.statuses == null) continue;
       counts[f.id] = unique.filter((c) =>
-        contactMatchesFilter(c.call_status, f.id)
+        contactMatchesFilter(c.call_status, f.id, c.last_outcome_notes)
       ).length;
     }
     return counts;
@@ -155,6 +177,55 @@ export function TelecallingPanel() {
     [contacts]
   );
 
+  const scanForIncomingCallbacks = useCallback(async () => {
+    // iOS cannot read call logs — only Android auto-moves No Answer → Call Back.
+    if (!isCallLogSupported() || !panelFocusedRef.current) return;
+    if (AppState.currentState !== 'active') return;
+    if (scanningCallbacksRef.current) return;
+
+    const list = contactsRef.current;
+    const hasNoAnswer = list.some((c) =>
+      isNoAnswerBusyStatus(
+        resolveTelecallingStatus(c.call_status, c.last_outcome_notes)
+      )
+    );
+    if (!hasNoAnswer) return;
+
+    scanningCallbacksRef.current = true;
+    try {
+      if (!(await hasCallLogPermission())) {
+        if (!callbackPermissionAskedRef.current) {
+          callbackPermissionAskedRef.current = true;
+          await ensureCallLogPermission();
+        }
+        if (!(await hasCallLogPermission())) return;
+      }
+
+      const matches = await detectIncomingCallbacks(list);
+      for (const match of matches) {
+        if (callbackMovingRef.current.has(match.contact.id)) continue;
+        callbackMovingRef.current.add(match.contact.id);
+        try {
+          await recordOutcome.mutateAsync({
+            contactId: match.contact.id,
+            outcome: 'callback',
+            notes: match.notes,
+          });
+        } catch (err) {
+          console.warn(
+            'Auto Call Back move failed',
+            match.contact.id,
+            getErrorMessage(err)
+          );
+        } finally {
+          callbackMovingRef.current.delete(match.contact.id);
+        }
+      }
+    } finally {
+      scanningCallbacksRef.current = false;
+    }
+  }, [recordOutcome]);
+
   useEffect(() => {
     const sub = AppState.addEventListener('change', (next) => {
       const prev = appStateRef.current;
@@ -162,15 +233,36 @@ export function TelecallingPanel() {
 
       if (
         (prev === 'background' || prev === 'inactive') &&
-        next === 'active' &&
-        pendingOutcomeIdRef.current
+        next === 'active'
       ) {
-        const id = pendingOutcomeIdRef.current;
-        setTimeout(() => openOutcomeFor(id), OUTCOME_PROMPT_DELAY_MS);
+        if (pendingOutcomeIdRef.current) {
+          const id = pendingOutcomeIdRef.current;
+          setTimeout(() => openOutcomeFor(id), OUTCOME_PROMPT_DELAY_MS);
+        }
+        // After Phone app / resume: detect customer call-backs into Call Back.
+        setTimeout(() => {
+          scanForIncomingCallbacks().catch(() => undefined);
+        }, OUTCOME_PROMPT_DELAY_MS + 200);
       }
     });
     return () => sub.remove();
-  }, [openOutcomeFor]);
+  }, [openOutcomeFor, scanForIncomingCallbacks]);
+
+  useFocusEffect(
+    useCallback(() => {
+      panelFocusedRef.current = true;
+      scanForIncomingCallbacks().catch(() => undefined);
+
+      const intervalId = setInterval(() => {
+        scanForIncomingCallbacks().catch(() => undefined);
+      }, CALLBACK_SCAN_INTERVAL_MS);
+
+      return () => {
+        panelFocusedRef.current = false;
+        clearInterval(intervalId);
+      };
+    }, [scanForIncomingCallbacks])
+  );
 
   const handleCall = async (contact: TelecallingContact) => {
     if (!isNativeMobile) {
@@ -223,18 +315,39 @@ export function TelecallingPanel() {
     notes: string
   ) => {
     if (!outcomeContact) return;
+    setUpdatingId(outcomeContact.id);
     try {
       await recordOutcome.mutateAsync({
         contactId: outcomeContact.id,
         outcome,
         notes,
       });
-      // Keep contact visible with updated feedback chip
-      setFilter('all');
+      // Stay on the current filter so No answer rows visibly leave that tab.
       setOutcomeVisible(false);
       setOutcomeContact(null);
     } catch (err) {
       Alert.alert('Error', getErrorMessage(err));
+    } finally {
+      setUpdatingId(null);
+    }
+  };
+
+  const handleQuickOutcome = async (
+    contact: TelecallingContact,
+    outcome: TelecallingCallOutcome,
+    notes?: string
+  ) => {
+    setUpdatingId(contact.id);
+    try {
+      await recordOutcome.mutateAsync({
+        contactId: contact.id,
+        outcome,
+        notes: notes ?? '',
+      });
+    } catch (err) {
+      Alert.alert('Error', getErrorMessage(err));
+    } finally {
+      setUpdatingId(null);
     }
   };
 
@@ -538,23 +651,43 @@ export function TelecallingPanel() {
         style={styles.listFlex}
         data={displayedContacts}
         keyExtractor={(item) => item.id}
-        extraData={{ filter, searchQuery, callingId, sendingId }}
+        extraData={{ filter, searchQuery, callingId, sendingId, updatingId }}
         contentContainerStyle={styles.listContent}
         keyboardShouldPersistTaps="handled"
-        renderItem={({ item, index }) => (
-          <TelecallingContactRow
-            contact={{
-              ...item,
-              call_status: normalizeTelecallingStatus(item.call_status),
-            }}
-            index={index}
-            calling={callingId === item.id}
-            sending={sendingId === item.id}
-            onCall={() => handleCall(item)}
-            onSendDetails={() => handleSendDetails(item)}
-            onDelete={() => handleDelete(item)}
-          />
-        )}
+        renderItem={({ item, index }) => {
+          const status = resolveTelecallingStatus(
+            item.call_status,
+            item.last_outcome_notes
+          );
+          const inNoAnswer = isNoAnswerBusyStatus(status);
+          return (
+            <TelecallingContactRow
+              contact={{
+                ...item,
+                call_status: status,
+              }}
+              index={index}
+              calling={callingId === item.id}
+              sending={sendingId === item.id}
+              updating={updatingId === item.id}
+              onCall={() => handleCall(item)}
+              onSendDetails={() => handleSendDetails(item)}
+              onUpdateStatus={() => openOutcomeFor(item.id)}
+              onGotThrough={
+                inNoAnswer
+                  ? () => handleQuickOutcome(item, 'connected')
+                  : undefined
+              }
+              onCalledBack={
+                inNoAnswer
+                  ? () =>
+                      handleQuickOutcome(item, 'callback', CALLED_BACK_NOTE)
+                  : undefined
+              }
+              onDelete={() => handleDelete(item)}
+            />
+          );
+        }}
         ListEmptyComponent={
           !isLoading ? (
             <EmptyState
@@ -566,7 +699,13 @@ export function TelecallingPanel() {
                     : 'No contacts yet. Import from Excel or phone, or add a number.'
                   : searchQuery.trim()
                     ? 'No contacts found'
-                    : 'Nothing in this filter.'
+                    : filter === 'no_answer_busy'
+                      ? isCallLogSupported()
+                        ? 'No unanswered calls. When someone calls you back, they move to Call Back automatically (or tap Called back).'
+                        : 'No unanswered calls. On iOS, tap Called back when they return your call (call log auto-detect needs Android).'
+                      : filter === 'callback'
+                        ? 'No Call Back contacts yet. People who return your no-answer call appear here.'
+                        : 'Nothing in this filter.'
               }
             />
           ) : null

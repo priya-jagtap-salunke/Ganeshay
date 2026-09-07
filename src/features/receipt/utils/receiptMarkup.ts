@@ -1,6 +1,7 @@
 import { BusinessDocumentSettings } from '@/types/settings';
 import {
   buildNativeLogoMarkup,
+  buildNativeMurtiPhotoMarkup,
   buildNativeQrHtmlTable,
 } from './nativePdfAssets';
 
@@ -18,6 +19,14 @@ export async function buildLogoMarkup(
   _forNativePdf = true
 ): Promise<string> {
   return buildNativeLogoMarkup(settings.businessLogo);
+}
+
+/** Booked murti photo for receipt — empty when unset. */
+export async function buildMurtiPhotoMarkup(
+  murtiPhotoUri: string | null | undefined,
+  _forNativePdf = true
+): Promise<string> {
+  return buildNativeMurtiPhotoMarkup(murtiPhotoUri);
 }
 
 /** Keep logo for resolution in buildLogoMarkup; do not strip URIs early. */

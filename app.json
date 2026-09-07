@@ -32,7 +32,7 @@
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#FFFAF5"
+        "backgroundColor": "#C41E3A"
       },
       "package": "com.bappaji.booking",
       "versionCode": 1,

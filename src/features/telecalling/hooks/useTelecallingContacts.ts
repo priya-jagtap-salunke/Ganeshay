@@ -5,12 +5,14 @@ import {
   fetchTelecallingContacts,
   importTelecallingContacts,
   recordCallOutcome,
+  recordMessageOutcome,
 } from '../api/telecallingApi';
 import {
   CreateTelecallingContactInput,
   RecordCallOutcomeInput,
   TelecallingContact,
 } from '@/types/telecalling';
+import { RecordMessageOutcomeInput } from '@/types/telemessaging';
 
 const QUERY_KEY = ['telecalling_contacts'] as const;
 
@@ -18,6 +20,7 @@ export function useTelecallingContacts() {
   return useQuery({
     queryKey: QUERY_KEY,
     queryFn: fetchTelecallingContacts,
+    staleTime: 2 * 60_000,
   });
 }
 
@@ -48,7 +51,26 @@ export function useRecordCallOutcome() {
           );
         }
       );
-      queryClient.invalidateQueries({ queryKey: QUERY_KEY });
+    },
+  });
+}
+
+export function useRecordMessageOutcome() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (input: RecordMessageOutcomeInput) =>
+      recordMessageOutcome(input),
+    onSuccess: (updated: TelecallingContact) => {
+      queryClient.setQueryData<TelecallingContact[]>(
+        QUERY_KEY,
+        (prev: TelecallingContact[] | undefined) => {
+          if (!prev) return [updated];
+          return prev.map((c: TelecallingContact) =>
+            c.id === updated.id ? updated : c
+          );
+        }
+      );
     },
   });
 }
@@ -64,7 +86,6 @@ export function useDeleteTelecallingContact() {
         (prev: TelecallingContact[] | undefined) =>
           (prev ?? []).filter((c: TelecallingContact) => c.id !== id)
       );
-      queryClient.invalidateQueries({ queryKey: QUERY_KEY });
     },
   });
 }
@@ -76,7 +97,6 @@ export function useDeleteAllTelecallingContacts() {
     mutationFn: () => deleteAllTelecallingContacts(),
     onSuccess: () => {
       queryClient.setQueryData<TelecallingContact[]>(QUERY_KEY, []);
-      queryClient.invalidateQueries({ queryKey: QUERY_KEY });
     },
   });
 }

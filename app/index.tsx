@@ -26,7 +26,11 @@ export default function HomeScreen() {
     if (usePortalStore.persist.hasHydrated()) {
       setPortalReady(true);
     }
-    return unsub;
+    const timeout = setTimeout(() => setPortalReady(true), 2500);
+    return () => {
+      unsub();
+      clearTimeout(timeout);
+    };
   }, []);
 
   useEffect(() => {

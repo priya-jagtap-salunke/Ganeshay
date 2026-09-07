@@ -1,6 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  assertNoDuplicateBooking,
   createBooking,
   deleteBooking,
   fetchBookingById,
@@ -25,17 +24,13 @@ export function useCreateBooking() {
 
   return useMutation({
     mutationFn: async (formData: BookingSchemaType) => {
-      // Block only when both name and mobile already match an existing booking.
-      await assertNoDuplicateBooking(
-        formData.customer_name,
-        formData.mobile
-      );
       const bookingNumber = await fetchNextBookingNumber();
       return createBooking(formData, bookingNumber);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['bookings'] });
       queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+      queryClient.invalidateQueries({ queryKey: ['bookings', 'booked-again-ids'] });
     },
   });
 }
@@ -89,6 +84,7 @@ export function useDeleteBooking() {
       queryClient.invalidateQueries({ queryKey: ['bookings'] });
       queryClient.invalidateQueries({ queryKey: ['dashboard'] });
       queryClient.invalidateQueries({ queryKey: ['reports'] });
+      queryClient.invalidateQueries({ queryKey: ['bookings', 'booked-again-ids'] });
     },
   });
 }

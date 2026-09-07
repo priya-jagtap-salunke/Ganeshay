@@ -179,7 +179,12 @@ export function BookingActions({
           label="Share WhatsApp"
           onPress={onShareWhatsApp}
           variant="saffron"
-          loading={isBusy && activeAction === 'whatsapp'}
+          loading={
+            isBusy &&
+            (activeAction === 'whatsapp' ||
+              activeAction === 'whatsapp-details' ||
+              activeAction === 'whatsapp-pdf')
+          }
           disabled={actionsDisabled}
         />
       </ActionRow>

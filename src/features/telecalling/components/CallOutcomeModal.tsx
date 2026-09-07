@@ -1,11 +1,16 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { StyleSheet, View, ScrollView, KeyboardAvoidingView, Platform } from 'react-native';
 import { Modal, Portal, Text, RadioButton, useTheme } from 'react-native-paper';
 import {
+  CALLED_BACK_NOTE,
   TelecallingCallOutcome,
   TelecallingContact,
   TELECALLING_OUTCOMES,
+  getOutcomeShortLabel,
+  isNoAnswerBusyStatus,
+  resolveTelecallingStatus,
 } from '@/types/telecalling';
+import { formatDisplayMobile } from '../utils/phoneNormalize';
 import { AppButton } from '@/components/ui/AppButton';
 import { AppInput } from '@/components/ui/AppInput';
 import { radius, spacing } from '@/theme/spacing';
@@ -26,19 +31,58 @@ export function CallOutcomeModal({
   onSave,
 }: CallOutcomeModalProps) {
   const theme = useTheme();
-  const [outcome, setOutcome] = useState<TelecallingCallOutcome>('connected');
+  const [choice, setChoice] = useState<TelecallingCallOutcome>('connected');
   const [notes, setNotes] = useState('');
+
+  const previousStatus = contact
+    ? resolveTelecallingStatus(
+        contact.call_status,
+        contact.last_outcome_notes
+      )
+    : 'pending';
+  const fromNoAnswer = isNoAnswerBusyStatus(previousStatus);
+
+  const options = useMemo(() => {
+    const base = TELECALLING_OUTCOMES.map((item) => ({
+      value: item.value,
+      label: item.label,
+    }));
+    if (!fromNoAnswer) return base;
+
+    // Put reconnect outcomes first when updating someone stuck in No answer.
+    const preferred: { value: TelecallingCallOutcome; label: string }[] = [
+      { value: 'connected', label: 'Got through / connected' },
+      { value: 'callback', label: 'Customer called back' },
+      { value: 'no_answer', label: 'Still no answer' },
+      { value: 'busy', label: 'Busy' },
+    ];
+    const preferredValues = new Set(preferred.map((p) => p.value));
+    return [
+      ...preferred,
+      ...base.filter((item) => !preferredValues.has(item.value)),
+    ];
+  }, [fromNoAnswer]);
 
   useEffect(() => {
     if (visible) {
-      setOutcome('connected');
+      setChoice('connected');
       setNotes('');
     }
   }, [visible, contact?.id]);
 
   if (!contact) return null;
 
-  const notesRequired = outcome === 'other' || outcome === 'call_again';
+  const notesRequired = choice === 'other' || choice === 'call_again';
+  const displayMobile = formatDisplayMobile(contact.mobile);
+  const previousLabel = getOutcomeShortLabel(previousStatus);
+
+  const handleSave = () => {
+    if (choice === 'callback') {
+      onSave('callback', notes.trim() || CALLED_BACK_NOTE);
+      return;
+    }
+    onSave(choice, notes);
+  };
 
   return (
     <Portal>
@@ -54,14 +98,43 @@ export function CallOutcomeModal({
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         >
           <Text variant="titleMedium" style={{ color: theme.colors.onSurface }}>
-            Call outcome
+            {fromNoAnswer ? 'Update call result' : 'Call outcome'}
           </Text>
           <Text
-            variant="bodyMedium"
-            style={{ color: theme.colors.onSurfaceVariant, marginTop: 4 }}
+            variant="titleSmall"
+            style={{
+              color: theme.colors.onSurface,
+              marginTop: spacing.sm,
+              fontWeight: '700',
+            }}
           >
-            {contact.name} · {contact.mobile}
+            {contact.name}
           </Text>
+          <Text
+            variant="bodyLarge"
+            style={{
+              color: theme.colors.primary,
+              fontWeight: '700',
+              letterSpacing: 0.3,
+              marginTop: 2,
+            }}
+          >
+            {displayMobile}
+          </Text>
+          {previousStatus !== 'pending' ? (
+            <Text
+              variant="bodySmall"
+              style={{
+                color: theme.colors.onSurfaceVariant,
+                marginTop: spacing.xs,
+              }}
+            >
+              Currently: {previousLabel}
+              {fromNoAnswer
+                ? ' — pick a new result so they leave No answer'
+                : ''}
+            </Text>
+          ) : null}
           <Text
             variant="bodySmall"
             style={{
@@ -76,11 +149,11 @@ export function CallOutcomeModal({
           <ScrollView style={styles.options} keyboardShouldPersistTaps="handled">
             <RadioButton.Group
               onValueChange={(value) =>
-                setOutcome(value as TelecallingCallOutcome)
+                setChoice(value as TelecallingCallOutcome)
               }
-              value={outcome}
+              value={choice}
             >
-              {TELECALLING_OUTCOMES.map((item) => (
+              {options.map((item) => (
                 <RadioButton.Item
                   key={item.value}
                   label={item.label}
@@ -95,10 +168,12 @@ export function CallOutcomeModal({
             <AppInput
               label={
                 notesRequired
-                  ? outcome === 'call_again'
+                  ? choice === 'call_again'
                     ? 'When to call again / notes (optional)'
                     : 'Notes (required for Other)'
-                  : 'Notes (optional)'
+                  : choice === 'callback'
+                    ? 'Notes (optional — defaults to “Customer called back”)'
+                    : 'Notes (optional)'
               }
               value={notes}
               onChangeText={setNotes}
@@ -115,12 +190,12 @@ export function CallOutcomeModal({
               disabled={saving}
               style={styles.actionBtn}
             >
-              Skip
+              {fromNoAnswer ? 'Keep as is' : 'Skip'}
             </AppButton>
             <AppButton
-              onPress={() => onSave(outcome, notes)}
+              onPress={handleSave}
               loading={saving}
-              disabled={outcome === 'other' && !notes.trim()}
+              disabled={choice === 'other' && !notes.trim()}
               style={styles.actionBtn}
             >
               Save

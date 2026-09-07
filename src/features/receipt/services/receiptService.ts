@@ -5,15 +5,25 @@ import { buildReceiptHtml } from '../templates/receiptHtml';
 import { shareReceiptOnWhatsApp } from './whatsappService';
 import {
   buildLogoMarkup,
+  buildMurtiPhotoMarkup,
   buildQrMarkup,
   sanitizeSettingsForNativePdf,
 } from '../utils/receiptMarkup';
 import { isWebBrowser, usesNativePdf } from '../utils/receiptPlatform';
+import { captureReceiptHtmlToPng } from '../utils/receiptImageCapture';
+import {
+  selectBusinessDocumentSettings,
+  useSettingsStore,
+} from '@/features/settings/store/settingsStore';
 
 /** Bump when invoice HTML changes so cached PDFs regenerate. */
-const RECEIPT_TEMPLATE_VERSION = 14;
+const RECEIPT_TEMPLATE_VERSION = 16;
 
 const pdfCache = new Map<string, string>();
+/** Dedupe concurrent generateReceiptPdf calls for the same booking. */
+const pdfInFlight = new Map<string, Promise<string>>();
+const receiptImageCache = new Map<string, string>();
+const receiptImageInFlight = new Map<string, Promise<string>>();
 
 function receiptCacheKey(bookingId: string): string {
   return `${bookingId}-v${RECEIPT_TEMPLATE_VERSION}`;
@@ -26,6 +36,9 @@ export function invalidateReceiptCache(bookingId: string): void {
     URL.revokeObjectURL(cached);
   }
   pdfCache.delete(key);
+  pdfInFlight.delete(key);
+  receiptImageCache.delete(key);
+  receiptImageInFlight.delete(key);
 }
 
 export function clearAllReceiptCache(): void {
@@ -35,6 +48,9 @@ export function clearAllReceiptCache(): void {
     }
     pdfCache.delete(key);
   });
+  pdfInFlight.clear();
+  receiptImageCache.clear();
+  receiptImageInFlight.clear();
 }
 
 export function getCachedReceiptUri(bookingId: string): string | undefined {
@@ -98,24 +114,42 @@ export async function generateReceiptPdf(
     return cached;
   }
 
-  const forNativePdf = usesNativePdf();
-  const pdfSettings = pdfSettingsForNative(settings);
-  const qrMarkup = await buildQrMarkup(booking.booking_number, forNativePdf);
-  const logoMarkup = await buildLogoMarkup(pdfSettings, forNativePdf);
-  const html = buildReceiptHtml(
-    booking,
-    pdfSettings,
-    qrMarkup,
-    logoMarkup,
-    forNativePdf
-  );
+  const existing = pdfInFlight.get(cacheKey);
+  if (existing) {
+    return existing;
+  }
 
-  const uri = isWebBrowser()
-    ? await generateWebPdf(html)
-    : await generateNativePdf(html);
+  const task = (async () => {
+    const forNativePdf = usesNativePdf();
+    const pdfSettings = pdfSettingsForNative(settings);
+    const [qrMarkup, logoMarkup, murtiPhotoMarkup] = await Promise.all([
+      buildQrMarkup(booking.booking_number, forNativePdf),
+      buildLogoMarkup(pdfSettings, forNativePdf),
+      buildMurtiPhotoMarkup(booking.murti_photo_uri, forNativePdf),
+    ]);
+    const html = buildReceiptHtml(
+      booking,
+      pdfSettings,
+      qrMarkup,
+      logoMarkup,
+      forNativePdf,
+      murtiPhotoMarkup
+    );
 
-  pdfCache.set(cacheKey, uri);
-  return uri;
+    const uri = isWebBrowser()
+      ? await generateWebPdf(html)
+      : await generateNativePdf(html);
+
+    pdfCache.set(cacheKey, uri);
+    return uri;
+  })();
+
+  pdfInFlight.set(cacheKey, task);
+  try {
+    return await task;
+  } finally {
+    pdfInFlight.delete(cacheKey);
+  }
 }
 
 /** Same HTML as PDF generation — for on-screen view (no print dialog). */
@@ -125,14 +159,18 @@ export async function buildReceiptViewHtml(
 ): Promise<string> {
   const forNativePdf = usesNativePdf();
   const pdfSettings = pdfSettingsForNative(settings);
-  const qrMarkup = await buildQrMarkup(booking.booking_number, forNativePdf);
-  const logoMarkup = await buildLogoMarkup(pdfSettings, forNativePdf);
+  const [qrMarkup, logoMarkup, murtiPhotoMarkup] = await Promise.all([
+    buildQrMarkup(booking.booking_number, forNativePdf),
+    buildLogoMarkup(pdfSettings, forNativePdf),
+    buildMurtiPhotoMarkup(booking.murti_photo_uri, forNativePdf),
+  ]);
   return buildReceiptHtml(
     booking,
     pdfSettings,
     qrMarkup,
     logoMarkup,
-    forNativePdf
+    forNativePdf,
+    murtiPhotoMarkup
   );
 }
 
@@ -227,10 +265,70 @@ export async function shareReceipt(pdfUri: string, bookingNumber: string) {
   });
 }
 
+/**
+ * Android WhatsApp: render the invoice HTML to a high-quality PNG.
+ * WhatsApp routinely drops PDF EXTRA_STREAM after a "successful" share Intent;
+ * images use the same reliable path as tele-calling banners.
+ */
+export async function generateReceiptShareImage(
+  booking: Booking,
+  settings: BusinessDocumentSettings
+): Promise<string> {
+  const cacheKey = receiptCacheKey(booking.id);
+  const cached = receiptImageCache.get(cacheKey);
+  if (cached) {
+    return cached;
+  }
+
+  const existing = receiptImageInFlight.get(cacheKey);
+  if (existing) {
+    return existing;
+  }
+
+  const task = (async () => {
+    const html = await buildReceiptViewHtml(booking, settings);
+    const uri = await captureReceiptHtmlToPng(
+      html,
+      `Receipt_${booking.booking_number}.png`
+    );
+    receiptImageCache.set(cacheKey, uri);
+    return uri;
+  })();
+
+  receiptImageInFlight.set(cacheKey, task);
+  try {
+    return await task;
+  } finally {
+    receiptImageInFlight.delete(cacheKey);
+  }
+}
+
 export async function shareReceiptViaWhatsApp(
   booking: Booking,
   pdfUri: string,
   options?: { messageVariant?: 'default' | 'newBooking' }
 ): Promise<void> {
-  await shareReceiptOnWhatsApp(booking, pdfUri, options);
+  const isNewBooking = options?.messageVariant === 'newBooking';
+  let receiptImageUri: string | undefined;
+
+  // Android + iOS: default booking shares use receipt image (reliable WhatsApp attach).
+  // New Booking / invoice PDF button uses the dedicated PDF path instead.
+  if (!isNewBooking && (Platform.OS === 'android' || Platform.OS === 'ios')) {
+    try {
+      const settings = selectBusinessDocumentSettings(useSettingsStore.getState());
+      receiptImageUri = await generateReceiptShareImage(booking, settings);
+    } catch (error) {
+      console.warn('Could not render receipt image for WhatsApp', error);
+      Alert.alert(
+        'Receipt Image Failed',
+        'Could not prepare the booking receipt image. Please try Share on WhatsApp again.'
+      );
+      return;
+    }
+  }
+
+  await shareReceiptOnWhatsApp(booking, pdfUri, {
+    ...options,
+    receiptImageUri,
+  });
 }

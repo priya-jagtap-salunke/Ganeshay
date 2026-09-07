@@ -1,7 +1,13 @@
+import type {
+  TeleMessagingKind,
+  TeleMessagingStatus,
+} from './telemessaging';
+
 /** Latest outcome mirrored on the contact (also used for list filters). */
 export type TelecallingCallStatus =
   | 'pending'
   | 'connected'
+  | 'callback'
   | 'no_answer'
   | 'disconnected'
   | 'busy'
@@ -17,6 +23,7 @@ export type TelecallingFilterId =
   | 'all'
   | 'remaining'
   | 'called'
+  | 'callback'
   | 'call_again'
   | 'no_answer_busy'
   | 'declined'
@@ -30,6 +37,11 @@ export interface TelecallingContact {
   call_status: TelecallingCallStatus;
   last_called_at: string | null;
   last_outcome_notes: string | null;
+  /** WhatsApp Tele-messaging status (same contact row). */
+  message_status: TeleMessagingStatus;
+  last_messaged_at: string | null;
+  last_message_notes: string | null;
+  last_message_kind: TeleMessagingKind | null;
   synced_to_device: boolean;
   created_at: string;
   updated_at: string;
@@ -68,6 +80,7 @@ export const TELECALLING_OUTCOMES: {
   label: string;
 }[] = [
   { value: 'connected', label: 'Connected / received' },
+  { value: 'callback', label: 'Call Back / customer called back' },
   { value: 'no_answer', label: 'No answer' },
   { value: 'disconnected', label: 'Disconnected / dropped' },
   { value: 'busy', label: 'Busy' },
@@ -88,6 +101,11 @@ export const TELECALLING_FILTERS: {
     id: 'called',
     label: 'Already called',
     statuses: ['connected', 'other'],
+  },
+  {
+    id: 'callback',
+    label: 'Call Back',
+    statuses: ['callback'],
   },
   { id: 'call_again', label: 'Need to call again', statuses: ['call_again'] },
   {
@@ -113,6 +131,7 @@ export function normalizeTelecallingStatus(
   switch (raw) {
     case 'pending':
     case 'connected':
+    case 'callback':
     case 'no_answer':
     case 'disconnected':
     case 'busy':
@@ -133,11 +152,30 @@ export function normalizeTelecallingStatus(
   }
 }
 
+/**
+ * Resolve display/filter status, including legacy "connected + called back note"
+ * rows that predate the dedicated `callback` status.
+ */
+export function resolveTelecallingStatus(
+  status: TelecallingCallStatus | string | null | undefined,
+  notes?: string | null
+): TelecallingCallStatus {
+  const normalized = normalizeTelecallingStatus(status);
+  if (
+    normalized === 'connected' &&
+    (notes ?? '').toLowerCase().includes('called back')
+  ) {
+    return 'callback';
+  }
+  return normalized;
+}
+
 export function contactMatchesFilter(
   status: TelecallingCallStatus,
-  filterId: TelecallingFilterId
+  filterId: TelecallingFilterId,
+  notes?: string | null
 ): boolean {
-  const normalized = normalizeTelecallingStatus(status);
+  const normalized = resolveTelecallingStatus(status, notes);
   const def = TELECALLING_FILTERS.find((f) => f.id === filterId);
   if (!def || def.statuses == null) return true;
   return def.statuses.includes(normalized);
@@ -159,6 +197,8 @@ export function getOutcomeShortLabel(status: TelecallingCallStatus): string {
       return 'Not called';
     case 'connected':
       return 'Connected';
+    case 'callback':
+      return 'Call Back';
     case 'no_answer':
       return 'No answer';
     case 'disconnected':
@@ -177,6 +217,31 @@ export function getOutcomeShortLabel(status: TelecallingCallStatus): string {
       return status;
   }
 }
+
+/** Statuses that sit under the No answer / busy filter. */
+export function isNoAnswerBusyStatus(
+  status: TelecallingCallStatus
+): boolean {
+  const normalized = normalizeTelecallingStatus(status);
+  return (
+    normalized === 'no_answer' ||
+    normalized === 'busy' ||
+    normalized === 'disconnected'
+  );
+}
+
+/**
+ * Row label that recognizes a connected outcome saved as a customer callback.
+ */
+export function getContactOutcomeShortLabel(
+  status: TelecallingCallStatus,
+  notes?: string | null
+): string {
+  return getOutcomeShortLabel(resolveTelecallingStatus(status, notes));
+}
+
+export const CALLED_BACK_NOTE = 'Customer called back';
+export const AUTO_CALLBACK_NOTE = 'Auto-detected incoming call (Call Back)';
 
 /** Dev-time sanity: every outcome except pending is covered by a segment. */
 export function assertTelecallingFilterCoverage(): void {

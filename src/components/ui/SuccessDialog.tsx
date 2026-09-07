@@ -11,8 +11,13 @@ interface SuccessDialogProps {
   title: string;
   message: string;
   onConfirm: () => void;
+  /** @deprecated Prefer onShareBookingDetails / onShareInvoicePdf for New Booking. */
   onShareWhatsApp?: () => void;
   whatsAppLoading?: boolean;
+  onShareBookingDetails?: () => void;
+  onShareInvoicePdf?: () => void;
+  bookingDetailsLoading?: boolean;
+  invoicePdfLoading?: boolean;
 }
 
 export function SuccessDialog({
@@ -22,15 +27,25 @@ export function SuccessDialog({
   onConfirm,
   onShareWhatsApp,
   whatsAppLoading,
+  onShareBookingDetails,
+  onShareInvoicePdf,
+  bookingDetailsLoading,
+  invoicePdfLoading,
 }: SuccessDialogProps) {
   const theme = useTheme();
   if (!visible) return null;
+
+  const anyShareLoading = Boolean(
+    whatsAppLoading || bookingDetailsLoading || invoicePdfLoading
+  );
+  const hasSplitShare = Boolean(onShareBookingDetails || onShareInvoicePdf);
 
   return (
     <Portal>
       <Modal
         visible={visible}
-        onDismiss={onConfirm}
+        dismissable={!anyShareLoading}
+        onDismiss={anyShareLoading ? undefined : onConfirm}
         contentContainerStyle={[
           styles.modal,
           elevation.level3 as ViewStyle,
@@ -63,7 +78,38 @@ export function SuccessDialog({
             {message}
           </Text>
 
-          {onShareWhatsApp ? (
+          {hasSplitShare ? (
+            <>
+              {onShareBookingDetails ? (
+                <AppButton
+                  icon="whatsapp"
+                  variant="saffron"
+                  onPress={onShareBookingDetails}
+                  loading={bookingDetailsLoading}
+                  disabled={anyShareLoading}
+                  style={styles.button}
+                >
+                  {bookingDetailsLoading
+                    ? 'Preparing...'
+                    : 'Share booking details on WhatsApp'}
+                </AppButton>
+              ) : null}
+              {onShareInvoicePdf ? (
+                <AppButton
+                  icon="file-pdf-box"
+                  variant="primary"
+                  onPress={onShareInvoicePdf}
+                  loading={invoicePdfLoading}
+                  disabled={anyShareLoading}
+                  style={styles.button}
+                >
+                  {invoicePdfLoading
+                    ? 'Preparing PDF...'
+                    : 'Share invoice PDF on WhatsApp'}
+                </AppButton>
+              ) : null}
+            </>
+          ) : onShareWhatsApp ? (
             <AppButton
               icon="whatsapp"
               variant="saffron"
@@ -72,14 +118,15 @@ export function SuccessDialog({
               disabled={whatsAppLoading}
               style={styles.button}
             >
-              Share on WhatsApp
+              {whatsAppLoading ? 'Preparing...' : 'Share on WhatsApp'}
             </AppButton>
           ) : null}
 
           <AppButton
             onPress={onConfirm}
             style={styles.button}
-            variant={onShareWhatsApp ? 'outline' : 'primary'}
+            variant={hasSplitShare || onShareWhatsApp ? 'outline' : 'primary'}
+            disabled={anyShareLoading}
           >
             OK
           </AppButton>

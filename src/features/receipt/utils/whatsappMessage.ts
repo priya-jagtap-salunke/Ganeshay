@@ -8,8 +8,13 @@ function formatMurtiLabel(booking: Booking): string {
   const name = (booking.murti_name ?? '').trim();
   const size = (booking.murti_size ?? '').trim();
   if (name && size) return `${name} / ${size}`;
-  return name || size || '—';
+  return name || size || 'Shree Ganesha Murti';
 }
+
+export type NewBookingVendorContact = {
+  displayName?: string | null;
+  phone?: string | null;
+};
 
 export function buildWhatsAppMessage(
   booking: Booking,
@@ -40,15 +45,20 @@ Thank you for choosing Bappaji.com.
 Ganpati Bappa Morya! 🙏`;
 }
 
-/** New Booking → Send on WhatsApp — Marathi confirmation with full booking details. */
-export function buildNewBookingWhatsAppMessage(booking: Booking): string {
+/**
+ * New Booking → Share on WhatsApp — full Marathi confirmation with booking details.
+ * Values come from the saved booking + vendor settings (not hardcoded customers).
+ */
+export function buildNewBookingWhatsAppMessage(
+  booking: Booking,
+  _vendor?: NewBookingVendorContact
+): string {
+  const customerName = (booking.customer_name ?? '').trim() || 'ग्राहक';
   const delivery = (booking.delivery_date ?? '').trim();
-  const address = (booking.address ?? '').trim();
   const payment = (booking.payment_mode ?? '').trim();
 
   const extraLines = [
     delivery ? `📅 Delivery / Pickup: ${delivery}` : '',
-    address ? `📍 Address: ${address}` : '',
     payment ? `💵 Payment: ${payment}` : '',
   ]
     .filter(Boolean)
@@ -56,7 +66,7 @@ export function buildNewBookingWhatsAppMessage(booking: Booking): string {
 
   return `🌺🙏 गणपती बाप्पा मोरया! 🙏🌺
 
-प्रिय ${booking.customer_name},
+प्रिय ${customerName} ,
 
 आपल्या घरच्या बाप्पांसाठी आमच्यावर विश्वास ठेवून Eco-Friendly मूर्तीची बुकिंग केल्याबद्दल मनापासून धन्यवाद! ❤️
 
@@ -64,9 +74,9 @@ export function buildNewBookingWhatsAppMessage(booking: Booking): string {
 
 ✨ Booking ID: ${booking.booking_number}
 🪷 मूर्ती: ${formatMurtiLabel(booking)}
-💰 Total Amount: ₹${formatAmount(booking.price)}
-✅ Paid: ₹${formatAmount(booking.advance)}
-💳 Balance Amount: ₹${formatAmount(booking.pending)}${
+💰 Total Amount: ₹${formatAmount(Number(booking.price))}
+✅ Paid: ₹${formatAmount(Number(booking.advance))}
+💳 Balance Amount: ₹${formatAmount(Number(booking.pending))}${
     extraLines ? `\n${extraLines}` : ''
   }
 

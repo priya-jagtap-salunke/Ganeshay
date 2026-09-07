@@ -4,19 +4,65 @@ import {
   RecordCallOutcomeInput,
   TelecallingContact,
   TELECALLING_OUTCOMES,
-  normalizeTelecallingStatus,
+  resolveTelecallingStatus,
 } from '@/types/telecalling';
+import {
+  RecordMessageOutcomeInput,
+  TELEMESSAGING_OUTCOMES,
+  normalizeTeleMessagingKind,
+  normalizeTeleMessagingStatus,
+} from '@/types/telemessaging';
 import { getErrorMessage, getSupabaseConfigError } from '@/utils/errors';
 import { isValidIndianMobile, normalizeMobile } from '../utils/phoneNormalize';
 
-const CONTACT_SELECT =
+const CONTACT_SELECT_BASE =
   'id, name, mobile, notes, call_status, last_called_at, last_outcome_notes, synced_to_device, created_at, updated_at';
 
-function mapContactRow(row: TelecallingContact): TelecallingContact {
+const CONTACT_SELECT =
+  `${CONTACT_SELECT_BASE}, message_status, last_messaged_at, last_message_notes, last_message_kind`;
+
+type ContactRow = Partial<TelecallingContact> &
+  Pick<
+    TelecallingContact,
+    | 'id'
+    | 'name'
+    | 'mobile'
+    | 'notes'
+    | 'call_status'
+    | 'last_called_at'
+    | 'last_outcome_notes'
+    | 'synced_to_device'
+    | 'created_at'
+    | 'updated_at'
+  >;
+
+function mapContactRow(row: ContactRow): TelecallingContact {
   return {
     ...row,
-    call_status: normalizeTelecallingStatus(row.call_status),
+    // Includes legacy connected + "called back" note → callback
+    call_status: resolveTelecallingStatus(
+      row.call_status,
+      row.last_outcome_notes
+    ),
+    message_status: normalizeTeleMessagingStatus(row.message_status),
+    last_messaged_at: row.last_messaged_at ?? null,
+    last_message_notes: row.last_message_notes ?? null,
+    last_message_kind: normalizeTeleMessagingKind(row.last_message_kind),
   };
+}
+
+function isMissingMessageColumnError(error: unknown): boolean {
+  const lower = getErrorMessage(error).toLowerCase();
+  return (
+    (lower.includes('message_status') ||
+      lower.includes('last_messaged_at') ||
+      lower.includes('last_message_notes') ||
+      lower.includes('last_message_kind') ||
+      lower.includes('telemessaging_message_logs')) &&
+    (lower.includes('does not exist') ||
+      lower.includes('column') ||
+      lower.includes('schema cache'))
+  );
 }
 
 function mapTelecallingError(error: unknown): Error {
@@ -33,13 +79,19 @@ function mapTelecallingError(error: unknown): Error {
     );
   }
 
+  if (isMissingMessageColumnError({ message })) {
+    return new Error(
+      'Tele-messaging columns are missing in Supabase. Run supabase/telemessaging-migration.sql in the SQL editor.'
+    );
+  }
+
   if (
     lower.includes('check constraint') ||
     lower.includes('call_status') ||
     (lower.includes('violates') && lower.includes('check'))
   ) {
     return new Error(
-      'Could not save this call outcome. Re-run supabase/telecalling-migration.sql so call statuses are up to date.'
+      'Could not save this call outcome. Run supabase/telecalling-callback-migration.sql (or re-run telecalling-migration.sql) so Call Back status is allowed.'
     );
   }
 
@@ -94,10 +146,21 @@ export async function fetchTelecallingContacts(): Promise<TelecallingContact[]> 
     .select(CONTACT_SELECT)
     .order('created_at', { ascending: false });
 
-  if (error) throw mapTelecallingError(error);
-  return uniqueByMobile(
-    ((data ?? []) as TelecallingContact[]).map(mapContactRow)
-  );
+  if (error) {
+    // Tele-calling still works before telemessaging-migration.sql is applied.
+    if (isMissingMessageColumnError(error)) {
+      const fallback = await supabase
+        .from('telecalling_contacts')
+        .select(CONTACT_SELECT_BASE)
+        .order('created_at', { ascending: false });
+      if (fallback.error) throw mapTelecallingError(fallback.error);
+      return uniqueByMobile(
+        ((fallback.data ?? []) as ContactRow[]).map(mapContactRow)
+      );
+    }
+    throw mapTelecallingError(error);
+  }
+  return uniqueByMobile(((data ?? []) as ContactRow[]).map(mapContactRow));
 }
 
 export async function createTelecallingContact(
@@ -150,7 +213,7 @@ export async function createTelecallingContact(
     }
     throw mapTelecallingError(error);
   }
-  return mapContactRow(data as TelecallingContact);
+  return mapContactRow(data as ContactRow);
 }
 
 export interface ImportContactsResult {
@@ -244,7 +307,7 @@ export async function importTelecallingContacts(
           racedSkips += 1;
           continue;
         }
-        inserted.push(mapContactRow(one as TelecallingContact));
+        inserted.push(mapContactRow(one as ContactRow));
       }
       return {
         inserted,
@@ -254,7 +317,7 @@ export async function importTelecallingContacts(
     throw mapTelecallingError(error);
   }
   return {
-    inserted: ((data ?? []) as TelecallingContact[]).map(mapContactRow),
+    inserted: ((data ?? []) as ContactRow[]).map(mapContactRow),
     skippedExisting,
   };
 }
@@ -306,7 +369,58 @@ export async function recordCallOutcome(
     console.warn('telecalling_call_logs insert failed', logError);
   }
 
-  return mapContactRow(data as TelecallingContact);
+  return mapContactRow(data as ContactRow);
+}
+
+/**
+ * Append a message log row and update the contact's latest message status.
+ * Does not change call_status or other tele-calling fields.
+ */
+export async function recordMessageOutcome(
+  input: RecordMessageOutcomeInput
+): Promise<TelecallingContact> {
+  const configError = getSupabaseConfigError();
+  if (configError) throw new Error(configError);
+  await requireSession();
+
+  const allowed = TELEMESSAGING_OUTCOMES.some((o) => o.value === input.outcome);
+  if (!allowed) {
+    throw new Error('Invalid message status.');
+  }
+
+  const notes = input.notes?.trim() || null;
+  const messagedAt = new Date().toISOString();
+  const messageKind = input.messageKind ?? null;
+
+  const { data, error } = await supabase
+    .from('telecalling_contacts')
+    .update({
+      message_status: input.outcome,
+      last_messaged_at: messagedAt,
+      last_message_notes: notes,
+      last_message_kind: messageKind,
+    })
+    .eq('id', input.contactId)
+    .select(CONTACT_SELECT)
+    .single();
+
+  if (error) throw mapTelecallingError(error);
+
+  const { error: logError } = await supabase
+    .from('telemessaging_message_logs')
+    .insert({
+      contact_id: input.contactId,
+      outcome: input.outcome,
+      message_kind: messageKind,
+      notes,
+      messaged_at: messagedAt,
+    });
+
+  if (logError) {
+    console.warn('telemessaging_message_logs insert failed', logError);
+  }
+
+  return mapContactRow(data as ContactRow);
 }
 
 export async function markTelecallingSynced(

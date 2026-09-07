@@ -63,8 +63,30 @@ export async function persistMurtiPhoto(
   bookingId: string,
   sourceUri: string
 ): Promise<string> {
-  const mime = mimeFromUri(sourceUri);
-  const base64 = await readUriAsBase64(sourceUri);
+  let uriToStore = sourceUri;
+
+  // Downscale large camera shots so invoice PDF / WhatsApp stay reliable.
+  if (Platform.OS !== 'web') {
+    try {
+      const ImageManipulator = await import('expo-image-manipulator');
+      const resized = await ImageManipulator.manipulateAsync(
+        sourceUri,
+        [{ resize: { width: 1280 } }],
+        {
+          compress: 0.7,
+          format: ImageManipulator.SaveFormat.JPEG,
+        }
+      );
+      if (resized.uri) {
+        uriToStore = resized.uri;
+      }
+    } catch (error) {
+      console.warn('Murti photo resize on save failed; using original', error);
+    }
+  }
+
+  const mime = mimeFromUri(uriToStore);
+  const base64 = await readUriAsBase64(uriToStore);
 
   if (Platform.OS === 'web') {
     if (estimateBase64Bytes(base64) > MAX_WEB_PHOTO_BYTES) {
@@ -74,14 +96,14 @@ export async function persistMurtiPhoto(
   }
 
   await ensurePhotoDir();
-  const dest = `${PHOTO_DIR}${bookingId}.${extensionForMime(mime)}`;
+  const dest = `${PHOTO_DIR}${bookingId}.jpg`;
 
-  if (sourceUri.startsWith('data:')) {
+  if (uriToStore.startsWith('data:')) {
     await FileSystem.writeAsStringAsync(dest, base64, {
       encoding: FileSystem.EncodingType.Base64,
     });
   } else {
-    await FileSystem.copyAsync({ from: sourceUri, to: dest });
+    await FileSystem.copyAsync({ from: uriToStore, to: dest });
   }
 
   return dest;
@@ -103,21 +125,41 @@ export async function ensureShareableMurtiPhotoUri(
   storedUri: string,
   bookingId?: string
 ): Promise<string> {
-  const safeId = (bookingId ?? 'share').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 24) || 'share';
+  const safeId =
+    (bookingId ?? 'share').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 24) ||
+    'share';
+  const mime = mimeFromUri(storedUri);
+  const dest = `${FileSystem.cacheDirectory}murti-${safeId}.${extensionForMime(mime)}`;
 
   if (storedUri.startsWith('data:')) {
-    const mime = mimeFromUri(storedUri);
     const base64 = storedUri.split(',')[1] ?? '';
-    const dest = `${FileSystem.cacheDirectory}murti-${safeId}.${extensionForMime(mime)}`;
+    if (!base64) {
+      throw new Error('Murti photo data is empty.');
+    }
     await FileSystem.writeAsStringAsync(dest, base64, {
       encoding: FileSystem.EncodingType.Base64,
     });
-    return dest;
+    return dest.startsWith('file://') ? dest : `file://${dest}`;
   }
 
-  const dest = `${FileSystem.cacheDirectory}murti-${safeId}.${extensionForMime(mimeFromUri(storedUri))}`;
+  // Remote URL (e.g. Supabase storage) — download into cache first.
+  if (/^https?:\/\//i.test(storedUri)) {
+    const download = await FileSystem.downloadAsync(storedUri, dest);
+    if (download.status < 200 || download.status >= 300) {
+      throw new Error('Could not download the booked murti photo.');
+    }
+    return download.uri.startsWith('file://')
+      ? download.uri
+      : `file://${download.uri}`;
+  }
+
+  const info = await FileSystem.getInfoAsync(storedUri);
+  if (!info.exists || info.isDirectory) {
+    throw new Error('Booked murti photo was not found on this device.');
+  }
+
   await FileSystem.copyAsync({ from: storedUri, to: dest });
-  return dest;
+  return dest.startsWith('file://') ? dest : `file://${dest}`;
 }
 
 export function downloadMurtiPhotoOnWeb(storedUri: string, bookingNumber: string): void {

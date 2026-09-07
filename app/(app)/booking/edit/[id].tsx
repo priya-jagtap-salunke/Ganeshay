@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { ScrollView, StyleSheet, Alert } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { ScreenContainer } from '@/components/layout/ScreenContainer';
@@ -18,9 +18,11 @@ export default function EditBookingScreen() {
   const { data: booking, isLoading } = useBooking(id ?? '');
   const updateBooking = useUpdateBookingForm();
   const [saving, setSaving] = useState(false);
+  const saveLockRef = useRef(false);
 
   const handleSubmit = async (data: BookingSchemaType) => {
-    if (!id) return;
+    if (!id || saveLockRef.current || saving) return;
+    saveLockRef.current = true;
     setSaving(true);
     try {
       await updateBooking.mutateAsync({ id, formData: data });
@@ -29,7 +31,12 @@ export default function EditBookingScreen() {
         { text: 'OK', onPress: () => router.back() },
       ]);
     } catch (err) {
-      Alert.alert('Error', getErrorMessage(err));
+      saveLockRef.current = false;
+      const message = getErrorMessage(err);
+      const isDuplicate =
+        message.toLowerCase().includes('duplicate') ||
+        message.toLowerCase().includes('same customer name');
+      Alert.alert(isDuplicate ? 'Duplicate Entry' : 'Error', message);
     } finally {
       setSaving(false);
     }
@@ -41,6 +48,7 @@ export default function EditBookingScreen() {
 
   return (
     <ScreenContainer title="Edit Booking">
+      <LoadingOverlay visible={saving} />
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
         <BookingForm
           defaultValues={{
@@ -56,6 +64,7 @@ export default function EditBookingScreen() {
           onSubmit={handleSubmit}
           isLoading={saving}
           submitLabel="Update Booking"
+          pickerSession={{ returnTo: 'booking-edit', bookingId: id }}
         />
       </ScrollView>
     </ScreenContainer>

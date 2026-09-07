@@ -5,6 +5,9 @@ import { useRouter } from 'expo-router';
 import { elevation } from '@/theme/shadows';
 import { touchTarget } from '@/theme/spacing';
 
+/** Default Paper small Appbar is 64; compact keeps back affordance usable. */
+const COMPACT_HEADER_HEIGHT = 48;
+
 interface ScreenContainerProps {
   children: React.ReactNode;
   title?: string;
@@ -12,6 +15,8 @@ interface ScreenContainerProps {
   onBack?: () => void;
   style?: ViewStyle;
   actions?: React.ReactNode;
+  /** Shorter toolbar (e.g. Settings). Safe area still applied by parent. */
+  compactHeader?: boolean;
 }
 
 export function ScreenContainer({
@@ -21,6 +26,7 @@ export function ScreenContainer({
   onBack,
   style,
   actions,
+  compactHeader = false,
 }: ScreenContainerProps) {
   const router = useRouter();
   const theme = useTheme();
@@ -37,6 +43,7 @@ export function ScreenContainer({
           mode="small"
           style={[
             styles.header,
+            compactHeader && styles.headerCompact,
             { backgroundColor: theme.colors.primary },
             elevation.level2 as ViewStyle,
           ]}
@@ -52,7 +59,11 @@ export function ScreenContainer({
           ) : null}
           <Appbar.Content
             title={title}
-            titleStyle={[styles.headerTitle, { color: theme.colors.onPrimary }]}
+            titleStyle={[
+              styles.headerTitle,
+              compactHeader && styles.headerTitleCompact,
+              { color: theme.colors.onPrimary },
+            ]}
             color={theme.colors.onPrimary}
           />
           {actions}
@@ -70,10 +81,17 @@ const styles = StyleSheet.create({
   header: {
     elevation: 0,
   },
+  headerCompact: {
+    height: COMPACT_HEADER_HEIGHT,
+    maxHeight: COMPACT_HEADER_HEIGHT,
+  },
   headerTitle: {
     fontSize: 22,
     fontWeight: '500',
     letterSpacing: 0,
+  },
+  headerTitleCompact: {
+    fontSize: 18,
   },
   touch: {
     minWidth: touchTarget.min,

@@ -3,6 +3,7 @@ export {
   useTelecallingContacts,
   useImportTelecallingContacts,
   useRecordCallOutcome,
+  useRecordMessageOutcome,
   useDeleteTelecallingContact,
   useDeleteAllTelecallingContacts,
 } from './hooks/useTelecallingContacts';
@@ -17,8 +18,15 @@ export type { DeviceContactOption } from './services/deviceContactsService';
 export {
   isCallLogSupported,
   fetchRecentCallLogs,
+  fetchCallLogsForCallbackDetection,
+  isIncomingCallType,
 } from './services/callLogService';
 export type { CallLogEntry } from './services/callLogService';
+export {
+  detectIncomingCallbacks,
+  findNoAnswerCallbackMatches,
+} from './services/callbackAutoDetect';
+export type { CallbackAutoDetectMatch } from './services/callbackAutoDetect';
 export { shareStallDetailsOnWhatsApp } from './services/stallDetailsWhatsAppService';
 export {
   DEFAULT_ENQUIRY_MESSAGE,

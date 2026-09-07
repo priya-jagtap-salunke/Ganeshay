@@ -14,6 +14,8 @@ import { AppButton } from '@/components/ui/AppButton';
 import { AppSelect } from '@/components/ui/AppSelect';
 import { LoadingOverlay } from '@/components/ui/LoadingOverlay';
 import { useDeleteBooking } from '@/features/bookings/hooks/useBookings';
+import { useBookedAgainIds } from '@/features/bookings/hooks/useBookedAgainIds';
+import { formatCustomerNameWithBookedAgain } from '@/features/bookings/utils/bookedAgain';
 import { useYearBookings, useCustomerList, useYearExpenses } from '../hooks/useReports';
 import {
   buildYearlySummary,
@@ -128,13 +130,19 @@ function ReportActions({
 function YearBookingRow({
   booking,
   onPress,
+  bookedAgain = false,
 }: {
   booking: Booking;
   onPress: () => void;
+  bookedAgain?: boolean;
 }) {
   const deleteBooking = useDeleteBooking();
   const isDeleting =
     deleteBooking.isPending && deleteBooking.variables === booking.id;
+  const displayName = formatCustomerNameWithBookedAgain(
+    booking.customer_name,
+    bookedAgain
+  );
 
   const handleDelete = () => {
     Alert.alert(
@@ -183,7 +191,7 @@ function YearBookingRow({
             {booking.status}
           </Text>
         </View>
-        <Text style={styles.customerName}>{booking.customer_name}</Text>
+        <Text style={styles.customerName}>{displayName}</Text>
         <Text style={styles.bookingMeta}>Mobile: {booking.mobile}</Text>
         <Text style={styles.bookingMeta}>
           Date: {formatReportDate(booking.booking_date)}
@@ -291,6 +299,8 @@ export function ReportsPanel() {
     isLoading: bookingsLoading,
     refetch: refetchBookings,
   } = useYearBookings(yearNum);
+
+  const { data: bookedAgainIds } = useBookedAgainIds();
 
   const {
     data: customers,
@@ -409,6 +419,7 @@ export function ReportsPanel() {
                 <YearBookingRow
                   key={booking.id}
                   booking={booking}
+                  bookedAgain={bookedAgainIds?.has(booking.id) ?? false}
                   onPress={() =>
                     openBookingDetails(router, booking.id, 'reports')
                   }

@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { ScrollView, StyleSheet, Alert } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
@@ -15,32 +15,45 @@ import { getErrorMessage } from '@/utils/errors';
 export default function NewBookingScreen() {
   const router = useRouter();
   const createBooking = useCreateBooking();
-  const { shareOnWhatsApp, isBusy, activeAction } = useReceipt();
+  const {
+    shareBookingDetailsOnWhatsApp,
+    shareInvoicePdfOnWhatsApp,
+    prefetchPdf,
+    isBusy,
+    activeAction,
+  } = useReceipt();
   const [saving, setSaving] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
   const [savedBooking, setSavedBooking] = useState<Booking | null>(null);
+  /** Sync lock — React state alone cannot block double-taps before re-render. */
+  const saveLockRef = useRef(false);
 
   useFocusEffect(
     useCallback(() => {
       setShowSuccess(false);
       setSavedBooking(null);
       setSaving(false);
+      saveLockRef.current = false;
     }, [])
   );
 
   const handleSubmit = async (data: BookingSchemaType) => {
-    if (saving) return;
+    if (saveLockRef.current || saving || showSuccess) return;
+    saveLockRef.current = true;
     setSaving(true);
     try {
       const booking = await createBooking.mutateAsync(data);
       setSavedBooking(booking);
       setShowSuccess(true);
+      prefetchPdf(booking);
+      // Keep lock after success until leaving the screen.
     } catch (err) {
+      saveLockRef.current = false;
       const message = getErrorMessage(err);
-      Alert.alert(
-        message.toLowerCase().includes('duplicate') ? 'Duplicate Entry' : 'Error',
-        message
-      );
+      const isDuplicate =
+        message.toLowerCase().includes('duplicate') ||
+        message.toLowerCase().includes('same customer name');
+      Alert.alert(isDuplicate ? 'Duplicate Entry' : 'Error', message);
     } finally {
       setSaving(false);
     }
@@ -51,9 +64,14 @@ export default function NewBookingScreen() {
     router.replace('/(app)/dashboard');
   };
 
-  const handleShareWhatsApp = async () => {
+  const handleShareBookingDetails = async () => {
     if (!savedBooking || isBusy) return;
-    await shareOnWhatsApp(savedBooking, { messageVariant: 'newBooking' });
+    await shareBookingDetailsOnWhatsApp(savedBooking);
+  };
+
+  const handleShareInvoicePdf = async () => {
+    if (!savedBooking || isBusy) return;
+    await shareInvoicePdfOnWhatsApp(savedBooking);
   };
 
   return (
@@ -62,17 +80,24 @@ export default function NewBookingScreen() {
       onBack={() => router.replace('/(app)/dashboard')}
     >
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
-        <BookingForm onSubmit={handleSubmit} isLoading={saving} resetOnFocus />
+        <BookingForm
+          onSubmit={handleSubmit}
+          isLoading={saving || showSuccess}
+          resetOnFocus
+          pickerSession={{ returnTo: 'booking-new' }}
+        />
       </ScrollView>
 
-      <LoadingOverlay visible={isBusy} />
+      <LoadingOverlay visible={saving || (isBusy && activeAction === 'whatsapp-pdf')} />
 
       <SuccessDialog
         visible={showSuccess}
         title="✅ Booking Saved Successfully!"
         message="Your booking has been saved successfully."
-        onShareWhatsApp={handleShareWhatsApp}
-        whatsAppLoading={isBusy && activeAction === 'whatsapp'}
+        onShareBookingDetails={handleShareBookingDetails}
+        onShareInvoicePdf={handleShareInvoicePdf}
+        bookingDetailsLoading={isBusy && activeAction === 'whatsapp-details'}
+        invoicePdfLoading={isBusy && activeAction === 'whatsapp-pdf'}
         onConfirm={handleSuccessConfirm}
       />
     </ScreenContainer>

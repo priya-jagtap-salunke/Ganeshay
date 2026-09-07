@@ -9,13 +9,10 @@ import {
   persistMurtiPhoto,
   removeMurtiPhoto,
 } from '../utils/murtiPhotoStorage';
+import { normalizeCustomerName } from '../utils/bookedAgain';
 
 export const DUPLICATE_BOOKING_MESSAGE =
-  'Duplicate entry not allowed. A booking already exists for this customer name and contact number.';
-
-function normalizeCustomerName(name: string): string {
-  return name.trim().replace(/\s+/g, ' ').toLowerCase();
-}
+  'A booking already exists with the same customer name, contact number, and murti value. Change any of these to save a new booking.';
 
 function isDuplicateBookingConstraintError(error: {
   code?: string;
@@ -28,9 +25,66 @@ function isDuplicateBookingConstraintError(error: {
   );
 }
 
+function normalizeMurtiValue(price: number): number {
+  return Math.round(Number(price) * 100) / 100;
+}
+
+/**
+ * True when this vendor already has a booking with the same customer name,
+ * mobile, and murti value (total price).
+ */
+export async function bookingExistsForCustomerMurti(
+  customerName: string,
+  mobile: string,
+  murtiValue: number,
+  excludeBookingId?: string
+): Promise<boolean> {
+  const normalizedMobile = normalizeMobile(mobile);
+  const normalizedName = normalizeCustomerName(customerName);
+  const normalizedPrice = normalizeMurtiValue(murtiValue);
+  if (!normalizedMobile || !normalizedName || !(normalizedPrice > 0)) {
+    return false;
+  }
+
+  const { data, error } = await supabase
+    .from('bookings')
+    .select('id, mobile, customer_name, price')
+    .ilike('mobile', `%${normalizedMobile}%`)
+    .limit(200);
+
+  if (error) throw error;
+
+  return (data ?? []).some((row) => {
+    if (excludeBookingId && row.id === excludeBookingId) return false;
+    return (
+      normalizeMobile(String(row.mobile ?? '')) === normalizedMobile &&
+      normalizeCustomerName(String(row.customer_name ?? '')) ===
+        normalizedName &&
+      normalizeMurtiValue(Number(row.price)) === normalizedPrice
+    );
+  });
+}
+
+export async function assertNoDuplicateCustomerMurtiBooking(
+  customerName: string,
+  mobile: string,
+  murtiValue: number,
+  excludeBookingId?: string
+): Promise<void> {
+  const exists = await bookingExistsForCustomerMurti(
+    customerName,
+    mobile,
+    murtiValue,
+    excludeBookingId
+  );
+  if (exists) {
+    throw new Error(DUPLICATE_BOOKING_MESSAGE);
+  }
+}
+
 /**
  * True when this vendor already has a booking with the same mobile AND
- * the same customer name (either differing field allows a new booking).
+ * the same customer name (used to flag "booked again").
  */
 export async function bookingExistsForCustomer(
   customerName: string,
@@ -55,14 +109,28 @@ export async function bookingExistsForCustomer(
   );
 }
 
-export async function assertNoDuplicateBooking(
-  customerName: string,
-  mobile: string
-): Promise<void> {
-  const exists = await bookingExistsForCustomer(customerName, mobile);
-  if (exists) {
-    throw new Error(DUPLICATE_BOOKING_MESSAGE);
-  }
+/** Lightweight rows used to detect repeat name + mobile bookings. */
+export async function fetchBookingIdentityRows(): Promise<
+  Array<{
+    id: string;
+    customer_name: string;
+    mobile: string;
+    booking_date: string | null;
+    created_at: string;
+  }>
+> {
+  const { data, error } = await supabase
+    .from('bookings')
+    .select('id, customer_name, mobile, booking_date, created_at');
+
+  if (error) throw error;
+  return (data ?? []) as Array<{
+    id: string;
+    customer_name: string;
+    mobile: string;
+    booking_date: string | null;
+    created_at: string;
+  }>;
 }
 
 export async function fetchNextBookingNumber(): Promise<string> {
@@ -75,7 +143,11 @@ export async function createBooking(
   formData: BookingFormData,
   bookingNumber: string
 ): Promise<Booking> {
-  await assertNoDuplicateBooking(formData.customer_name, formData.mobile);
+  await assertNoDuplicateCustomerMurtiBooking(
+    formData.customer_name,
+    formData.mobile,
+    formData.price
+  );
 
   const pending = formData.price - formData.advance;
 
@@ -147,21 +219,27 @@ export async function fetchBookingById(id: string): Promise<Booking> {
   return data;
 }
 
+/** Columns for list/search/today — omit large murti_photo_uri blobs. */
+const BOOKING_LIST_COLUMNS =
+  'id, booking_number, customer_name, mobile, address, booking_date, delivery_date, murti_name, murti_size, price, advance, pending, payment_mode, notes, status, created_at, updated_at';
+
 export async function searchBookings(query: string): Promise<Booking[]> {
   const q = query.trim();
   if (!q) return [];
 
+  // Name: prefix match so "S" returns all names starting with S.
+  // Booking no / phone: contains so partial digits still match.
   const { data, error } = await supabase
     .from('bookings')
-    .select('*')
+    .select(BOOKING_LIST_COLUMNS)
     .or(
-      `booking_number.ilike.%${q}%,customer_name.ilike.%${q}%,mobile.ilike.%${q}%`
+      `booking_number.ilike.%${q}%,customer_name.ilike.${q}%,mobile.ilike.%${q}%`
     )
     .order('created_at', { ascending: false })
-    .limit(50);
+    .limit(100);
 
   if (error) throw error;
-  return data ?? [];
+  return (data ?? []) as Booking[];
 }
 
 export async function fetchTodayBookings(): Promise<Booking[]> {
@@ -169,12 +247,12 @@ export async function fetchTodayBookings(): Promise<Booking[]> {
 
   const { data, error } = await supabase
     .from('bookings')
-    .select('*')
+    .select(BOOKING_LIST_COLUMNS)
     .eq('booking_date', today)
     .order('created_at', { ascending: false });
 
   if (error) throw error;
-  return data ?? [];
+  return (data ?? []) as Booking[];
 }
 
 export interface DashboardStats {
@@ -188,24 +266,23 @@ export interface DashboardStats {
 export async function fetchDashboardStats(): Promise<DashboardStats> {
   const today = new Date().toISOString().split('T')[0];
 
-  const { data: todayBookings, error: e1 } = await supabase
-    .from('bookings')
-    .select('advance, pending, status')
-    .eq('booking_date', today);
-
-  const { data: allPending, error: e2 } = await supabase
-    .from('bookings')
-    .select('pending')
-    .eq('status', 'Pending');
-
-  const { count: deliveredCount, error: e3 } = await supabase
-    .from('bookings')
-    .select('*', { count: 'exact', head: true })
-    .eq('status', 'Delivered');
-
-  const { data: totalRows, error: e4 } = await supabase
-    .from('bookings')
-    .select('id');
+  const [
+    { data: todayBookings, error: e1 },
+    { data: allPending, error: e2 },
+    { count: deliveredCount, error: e3 },
+    { count: totalBookingsCount, error: e4 },
+  ] = await Promise.all([
+    supabase
+      .from('bookings')
+      .select('advance, pending, status')
+      .eq('booking_date', today),
+    supabase.from('bookings').select('pending').eq('status', 'Pending'),
+    supabase
+      .from('bookings')
+      .select('*', { count: 'exact', head: true })
+      .eq('status', 'Delivered'),
+    supabase.from('bookings').select('*', { count: 'exact', head: true }),
+  ]);
 
   if (e1 || e2 || e3 || e4) throw e1 || e2 || e3 || e4;
 
@@ -216,7 +293,7 @@ export async function fetchDashboardStats(): Promise<DashboardStats> {
 
   return {
     todayBookingsCount: todayBookings?.length ?? 0,
-    totalBookingsCount: totalRows?.length ?? 0,
+    totalBookingsCount: totalBookingsCount ?? 0,
     todayCollection,
     pendingAmount,
     deliveredCount: deliveredCount ?? 0,
@@ -252,6 +329,13 @@ export async function updateBookingFromForm(
   id: string,
   formData: BookingFormData
 ): Promise<Booking> {
+  await assertNoDuplicateCustomerMurtiBooking(
+    formData.customer_name,
+    formData.mobile,
+    formData.price,
+    id
+  );
+
   const pending = formData.price - formData.advance;
   const existing = await fetchBookingById(id);
 

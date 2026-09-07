@@ -7,6 +7,7 @@ import { BookingCard } from '@/features/bookings/components/BookingCard';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { LoadingOverlay } from '@/components/ui/LoadingOverlay';
 import { useYearBookings } from '@/features/reports/hooks/useReports';
+import { useBookedAgainIds } from '@/features/bookings/hooks/useBookedAgainIds';
 import { openBookingDetails } from '@/utils/bookingNavigation';
 import { Booking } from '@/types/booking';
 import { colors } from '@/theme/colors';
@@ -27,6 +28,7 @@ export default function YearBookingsScreen() {
   const router = useRouter();
   const year = new Date().getFullYear();
   const { data: bookings, isLoading, isRefetching, refetch } = useYearBookings(year);
+  const { data: bookedAgainIds } = useBookedAgainIds();
   const [searchQuery, setSearchQuery] = useState('');
 
   const filteredBookings = useMemo(() => {
@@ -54,13 +56,14 @@ export default function YearBookingsScreen() {
         style={styles.listFlex}
         data={filteredBookings}
         keyExtractor={(item) => item.id}
-        extraData={searchQuery}
+        extraData={[searchQuery, bookedAgainIds]}
         keyboardShouldPersistTaps="handled"
         renderItem={({ item, index }) => (
           <BookingCard
             booking={item}
             index={index}
             showDate
+            bookedAgain={bookedAgainIds?.has(item.id) ?? false}
             onPress={() => openBookingDetails(router, item.id, 'year')}
           />
         )}

@@ -34,13 +34,15 @@ export async function fetchYearBookings(year: number): Promise<Booking[]> {
 
   const { data, error } = await supabase
     .from('bookings')
-    .select('*')
+    .select(
+      'id, booking_number, customer_name, mobile, address, booking_date, delivery_date, murti_name, murti_size, price, advance, pending, payment_mode, notes, status, created_at, updated_at'
+    )
     .gte('booking_date', start)
     .lt('booking_date', end)
     .order('booking_date', { ascending: false });
 
   if (error) throw error;
-  return data ?? [];
+  return (data ?? []) as Booking[];
 }
 
 export function buildYearlySummary(

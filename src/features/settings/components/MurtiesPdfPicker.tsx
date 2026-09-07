@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { StyleSheet, View, Alert } from 'react-native';
+import { StyleSheet, View, Alert, Platform } from 'react-native';
 import { Text } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import * as DocumentPicker from 'expo-document-picker';
@@ -7,6 +7,7 @@ import { AppButton } from '@/components/ui/AppButton';
 import {
   persistMurtiesPdf,
   removeMurtiesPdf,
+  MAX_NATIVE_MURTIES_PDF_BYTES,
 } from '../utils/murtiesPdfStorage';
 import { colors } from '@/theme/colors';
 import { radius, spacing } from '@/theme/spacing';
@@ -17,6 +18,10 @@ interface MurtiesPdfPickerProps {
   pdfName: string | null;
   onPdfChange: (pdfUri: string | null, pdfName: string | null) => void;
 }
+
+const MAX_PICK_BYTES =
+  Platform.OS === 'web' ? 25 * 1024 * 1024 : MAX_NATIVE_MURTIES_PDF_BYTES;
+const MAX_PICK_LABEL = Platform.OS === 'web' ? '25 MB' : '150 MB';
 
 export function MurtiesPdfPicker({
   pdfUri,
@@ -42,8 +47,11 @@ export function MurtiesPdfPicker({
         return;
       }
 
-      if (asset.size && asset.size > 15 * 1024 * 1024) {
-        Alert.alert('File Too Large', 'Please choose a PDF under 15 MB.');
+      if (asset.size && asset.size > MAX_PICK_BYTES) {
+        Alert.alert(
+          'File Too Large',
+          `Please choose a PDF under ${MAX_PICK_LABEL}.`
+        );
         return;
       }
 
@@ -86,8 +94,8 @@ export function MurtiesPdfPicker({
     <View style={styles.container}>
       <Text style={styles.label}>Ganesha Murties Catalog (PDF)</Text>
       <Text style={styles.hint}>
-        Optional catalog PDF. When a banner image is set, Send attaches the banner
-        with your message first, then this PDF as a follow-up.
+        Optional catalog PDF (up to {MAX_PICK_LABEL}). Used when sending the
+        catalog from Tele-Messaging / Tele-calling.
       </Text>
 
       <View style={styles.previewBox}>

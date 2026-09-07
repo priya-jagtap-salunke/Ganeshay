@@ -84,11 +84,27 @@ export function DeviceContactsPickerModal({
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return options;
-    return options.filter(
+
+    const matches = options.filter(
       (opt) =>
         opt.name.toLowerCase().includes(q) ||
         mobileMatchesQuery(opt.mobile, query)
     );
+
+    // Prefix-first (same spirit as booking 1-char search): names starting
+    // with q, then other name/phone contains matches. A–Z within each group.
+    const byName = (a: DeviceContactOption, b: DeviceContactOption) =>
+      a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
+
+    const prefix: DeviceContactOption[] = [];
+    const rest: DeviceContactOption[] = [];
+    for (const opt of matches) {
+      if (opt.name.toLowerCase().startsWith(q)) prefix.push(opt);
+      else rest.push(opt);
+    }
+    prefix.sort(byName);
+    rest.sort(byName);
+    return [...prefix, ...rest];
   }, [options, query]);
 
   const selectedCount = selectedKeys.size;

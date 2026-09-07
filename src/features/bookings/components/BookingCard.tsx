@@ -10,12 +10,15 @@ import { formatDisplayDate } from '@/utils/dates';
 import { getErrorMessage } from '@/utils/errors';
 import { radius, spacing, touchTarget } from '@/theme/spacing';
 import { useDeleteBooking } from '../hooks/useBookings';
+import { formatCustomerNameWithBookedAgain } from '../utils/bookedAgain';
 
 interface BookingCardProps {
   booking: Booking;
   onPress: () => void;
   index?: number;
   showDate?: boolean;
+  /** Same name + mobile already has an earlier booking. */
+  bookedAgain?: boolean;
 }
 
 export function BookingCard({
@@ -23,6 +26,7 @@ export function BookingCard({
   onPress,
   index = 0,
   showDate = false,
+  bookedAgain = false,
 }: BookingCardProps) {
   const theme = useTheme();
   const deleteBooking = useDeleteBooking();
@@ -31,6 +35,10 @@ export function BookingCard({
   const statusBg = isDelivered ? colors.successContainer : colors.pendingContainer;
   const isDeleting =
     deleteBooking.isPending && deleteBooking.variables === booking.id;
+  const displayName = formatCustomerNameWithBookedAgain(
+    booking.customer_name,
+    bookedAgain
+  );
 
   const handleDelete = () => {
     Alert.alert(
@@ -76,7 +84,7 @@ export function BookingCard({
           onPress={onPress}
           android_ripple={{ color: theme.colors.primary + '18' }}
           accessibilityRole="button"
-          accessibilityLabel={`Booking ${booking.booking_number}, ${booking.customer_name}`}
+          accessibilityLabel={`Booking ${booking.booking_number}, ${displayName}`}
           style={({ pressed }) => [
             styles.cardPressable,
             pressed && Platform.OS !== 'android' && styles.cardPressed,
@@ -105,7 +113,7 @@ export function BookingCard({
             </Chip>
           </View>
           <Text variant="titleMedium" style={{ color: theme.colors.onSurface }}>
-            {booking.customer_name}
+            {displayName}
           </Text>
           {showDate ? (
             <Text

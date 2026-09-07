@@ -48,6 +48,11 @@ export function whatsAppSocialForKind(
   Share: { Social: { WHATSAPP: unknown; WHATSAPPBUSINESS: unknown } },
   appKind: WhatsAppAppKind
 ) {
+  // react-native-share WHATSAPPBUSINESS document share is Android-only.
+  // On iOS always use WHATSAPP so invoice/catalog PDF attach matches Android.
+  if (Platform.OS === 'ios') {
+    return Share.Social.WHATSAPP;
+  }
   return appKind === 'business'
     ? Share.Social.WHATSAPPBUSINESS
     : Share.Social.WHATSAPP;

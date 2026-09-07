@@ -7,6 +7,15 @@ export function normalizeMobile(value: string): string {
   return digits;
 }
 
+/** Display as `98765 43210` so callbacks are easy to match by eye. */
+export function formatDisplayMobile(value: string): string {
+  const digits = normalizeMobile(value);
+  if (digits.length === 10) {
+    return `${digits.slice(0, 5)} ${digits.slice(5)}`;
+  }
+  return value.trim();
+}
+
 export function isValidIndianMobile(phone: string): boolean {
   const digits = normalizeMobile(phone);
   return digits.length === 10 && /^[6-9]/.test(digits);

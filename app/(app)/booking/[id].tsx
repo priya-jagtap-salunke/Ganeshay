@@ -12,6 +12,8 @@ import {
   useMarkDelivered,
   useDeleteBooking,
 } from '@/features/bookings/hooks/useBookings';
+import { useBookedAgainIds } from '@/features/bookings/hooks/useBookedAgainIds';
+import { formatCustomerNameWithBookedAgain } from '@/features/bookings/utils/bookedAgain';
 import { useReceipt } from '@/features/receipt/hooks/useReceipt';
 import { closeBookingDetails } from '@/utils/bookingNavigation';
 import { formatCurrency } from '@/utils/currency';
@@ -59,11 +61,13 @@ export default function BookingDetailsScreen() {
   }>();
   const router = useRouter();
   const { data: booking, isLoading } = useBooking(id ?? '');
+  const { data: bookedAgainIds } = useBookedAgainIds();
   const markDelivered = useMarkDelivered();
   const deleteBooking = useDeleteBooking();
   const {
     downloadPdf,
-    shareOnWhatsApp,
+    shareBookingDetailsOnWhatsApp,
+    shareInvoicePdfOnWhatsApp,
     isBusy,
     activeAction,
   } = useReceipt();
@@ -74,6 +78,29 @@ export default function BookingDetailsScreen() {
   const handleViewReceipt = () => {
     if (!booking?.id) return;
     router.push(`/(app)/booking/receipt/${booking.id}`);
+  };
+
+  const handleShareWhatsApp = () => {
+    if (!booking || isBusy) return;
+    Alert.alert(
+      'Share on WhatsApp',
+      'Choose what to share with the customer.',
+      [
+        {
+          text: 'Share booking details',
+          onPress: () => {
+            void shareBookingDetailsOnWhatsApp(booking);
+          },
+        },
+        {
+          text: 'Share invoice PDF',
+          onPress: () => {
+            void shareInvoicePdfOnWhatsApp(booking);
+          },
+        },
+        { text: 'Cancel', style: 'cancel' },
+      ]
+    );
   };
 
   const handleDelete = () => {
@@ -132,7 +159,13 @@ export default function BookingDetailsScreen() {
         >
           Customer Details
         </Text>
-        <DetailRow label="Name" value={booking.customer_name} />
+        <DetailRow
+          label="Name"
+          value={formatCustomerNameWithBookedAgain(
+            booking.customer_name,
+            bookedAgainIds?.has(booking.id) ?? false
+          )}
+        />
         <DetailRow label="Phone" value={booking.mobile} />
 
         <Divider style={styles.divider} />
@@ -199,7 +232,7 @@ export default function BookingDetailsScreen() {
         <BookingActions
           onViewReceipt={handleViewReceipt}
           onDownloadPdf={() => downloadPdf(booking)}
-          onShareWhatsApp={() => shareOnWhatsApp(booking)}
+          onShareWhatsApp={handleShareWhatsApp}
           onEdit={() => router.push(`/(app)/booking/edit/${booking.id}`)}
           onDelete={handleDelete}
           onMarkDelivered={() => setShowDelivery(true)}

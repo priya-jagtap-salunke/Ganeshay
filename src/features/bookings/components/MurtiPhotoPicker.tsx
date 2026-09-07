@@ -1,14 +1,29 @@
-import { useState } from 'react';
-import { StyleSheet, View, Image, Alert, Platform } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import {
+  StyleSheet,
+  View,
+  Image,
+  Alert,
+  Platform,
+  BackHandler,
+} from 'react-native';
 import { Text } from 'react-native-paper';
+import { useNavigation } from '@react-navigation/native';
 import * as ImagePicker from 'expo-image-picker';
 import { AppButton } from '@/components/ui/AppButton';
 import { colors } from '@/theme/colors';
 import { radius, spacing } from '@/theme/spacing';
+import {
+  beginMurtiPhotoPickerSession,
+  endMurtiPhotoPickerSession,
+  type MurtiPhotoPickerSession,
+} from '../utils/murtiPhotoPickerSession';
 
 interface MurtiPhotoPickerProps {
   photoUri: string | null | undefined;
   onPhotoChange: (photoUri: string | null) => void;
+  /** Where to restore navigation if Android recreates the activity mid-pick. */
+  pickerSession?: MurtiPhotoPickerSession;
 }
 
 async function requestLibraryPermission(): Promise<boolean> {
@@ -42,8 +57,48 @@ async function requestCameraPermission(): Promise<boolean> {
 export function MurtiPhotoPicker({
   photoUri,
   onPhotoChange,
+  pickerSession,
 }: MurtiPhotoPickerProps) {
+  const navigation = useNavigation();
   const [picking, setPicking] = useState(false);
+  /** Blocks accidental back while the system camera/gallery is open or just closed. */
+  const blockBackRef = useRef(false);
+  const blockBackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    const unsub = navigation.addListener('beforeRemove', (event) => {
+      if (!blockBackRef.current) return;
+      event.preventDefault();
+    });
+    return unsub;
+  }, [navigation]);
+
+  useEffect(() => {
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      return blockBackRef.current;
+    });
+    return () => sub.remove();
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (blockBackTimerRef.current) clearTimeout(blockBackTimerRef.current);
+    };
+  }, []);
+
+  const armBackGuard = () => {
+    blockBackRef.current = true;
+    if (blockBackTimerRef.current) clearTimeout(blockBackTimerRef.current);
+  };
+
+  const releaseBackGuardSoon = () => {
+    if (blockBackTimerRef.current) clearTimeout(blockBackTimerRef.current);
+    // Android often delivers a spurious back right after the camera activity closes.
+    blockBackTimerRef.current = setTimeout(() => {
+      blockBackRef.current = false;
+      blockBackTimerRef.current = null;
+    }, 750);
+  };
 
   const applyAsset = (asset: ImagePicker.ImagePickerAsset) => {
     if (asset.uri) {
@@ -51,46 +106,53 @@ export function MurtiPhotoPicker({
     }
   };
 
-  const handleTakePhoto = async () => {
-    const allowed = await requestCameraPermission();
-    if (!allowed) return;
-
+  const runPicker = async (
+    openPicker: () => Promise<ImagePicker.ImagePickerResult>
+  ) => {
+    armBackGuard();
     setPicking(true);
     try {
-      const result = await ImagePicker.launchCameraAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        allowsEditing: false,
-        quality: 0.7,
-      });
+      if (pickerSession) {
+        await beginMurtiPhotoPickerSession(pickerSession);
+      }
+
+      const result = await openPicker();
 
       if (result.canceled || !result.assets[0]) return;
       applyAsset(result.assets[0]);
     } catch {
-      Alert.alert('Error', 'Could not open the camera. Please try again.');
+      Alert.alert('Error', 'Could not open the photo picker. Please try again.');
     } finally {
+      await endMurtiPhotoPickerSession();
       setPicking(false);
+      releaseBackGuardSoon();
     }
+  };
+
+  const handleTakePhoto = async () => {
+    const allowed = await requestCameraPermission();
+    if (!allowed) return;
+
+    await runPicker(() =>
+      ImagePicker.launchCameraAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: false,
+        quality: 0.55,
+      })
+    );
   };
 
   const handlePickFromGallery = async () => {
     const allowed = await requestLibraryPermission();
     if (!allowed) return;
 
-    setPicking(true);
-    try {
-      const result = await ImagePicker.launchImageLibraryAsync({
+    await runPicker(() =>
+      ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
         allowsEditing: false,
-        quality: 0.7,
-      });
-
-      if (result.canceled || !result.assets[0]) return;
-      applyAsset(result.assets[0]);
-    } catch {
-      Alert.alert('Error', 'Could not select a photo. Please try again.');
-    } finally {
-      setPicking(false);
-    }
+        quality: 0.55,
+      })
+    );
   };
 
   const handleRemove = () => {

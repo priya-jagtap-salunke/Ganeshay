@@ -3,8 +3,12 @@ import QRCode from 'qrcode';
 
 const CACHE_PREFIX = 'receipt-pdf-';
 const MAX_LOGO_DATA_URI_LENGTH = 350_000;
+/** Murti photos may be larger than logos; keep under ~1MB base64 for expo-print. */
+const MAX_MURTI_DATA_URI_LENGTH = 1_200_000;
 const LOGO_IMG_STYLE =
   'height:52px;max-height:52px;max-width:180px;display:block;';
+const MURTI_IMG_STYLE =
+  'width:140px;max-width:140px;height:140px;max-height:140px;object-fit:cover;display:block;border:1.5px solid #D4AF37;';
 
 /** Write a base64 data URI image to cache and return a file URI. */
 export async function writeDataUriImageToCache(
@@ -22,7 +26,9 @@ export async function writeDataUriImageToCache(
 
 function normalizeFileUri(path: string): string {
   if (path.startsWith('file://')) return path;
-  return `file://${path}`;
+  if (path.startsWith('content://')) return path;
+  if (path.startsWith('/')) return `file://${path}`;
+  return path;
 }
 
 function guessImageMime(uri: string, contentType?: string | null): string {
@@ -47,6 +53,15 @@ export function isAndroidSafeRasterLogo(logo: string | null): logo is string {
   if (!logo) return false;
   if (logo.length > MAX_LOGO_DATA_URI_LENGTH) return false;
   return /^data:image\/(jpeg|jpg|png|webp);base64,/i.test(logo);
+}
+
+function isAndroidSafeRasterImage(
+  uri: string | null | undefined,
+  maxLength: number
+): uri is string {
+  if (!uri) return false;
+  if (uri.length > maxLength) return false;
+  return /^data:image\/(jpeg|jpg|png|webp);base64,/i.test(uri);
 }
 
 function isResolvableLogoUri(logo: string): boolean {
@@ -155,6 +170,119 @@ export async function buildNativeLogoMarkup(
   }
 
   return `<img src="${dataUri}" alt="Logo" style="${LOGO_IMG_STYLE}" />`;
+}
+
+/**
+ * Downscale + JPEG-compress a murti photo so it fits expo-print HTML limits.
+ * Camera photos are often multi-MB and previously dropped silently from the PDF.
+ */
+async function compressMurtiPhotoToPrintableDataUri(
+  sourceUri: string
+): Promise<string | null> {
+  try {
+    const ImageManipulator = await import('expo-image-manipulator');
+    let workingUri = sourceUri;
+
+    if (sourceUri.startsWith('data:')) {
+      workingUri = await writeDataUriImageToCache(
+        sourceUri,
+        `murti-raw-${Date.now()}.jpg`
+      );
+    } else {
+      workingUri = normalizeFileUri(sourceUri);
+    }
+
+    const attempts: { width: number; compress: number }[] = [
+      { width: 560, compress: 0.55 },
+      { width: 420, compress: 0.45 },
+      { width: 280, compress: 0.35 },
+    ];
+
+    for (const attempt of attempts) {
+      const result = await ImageManipulator.manipulateAsync(
+        workingUri,
+        [{ resize: { width: attempt.width } }],
+        {
+          compress: attempt.compress,
+          format: ImageManipulator.SaveFormat.JPEG,
+          base64: true,
+        }
+      );
+      if (!result.base64) continue;
+      const dataUri = `data:image/jpeg;base64,${result.base64}`;
+      if (isAndroidSafeRasterImage(dataUri, MAX_MURTI_DATA_URI_LENGTH)) {
+        return dataUri;
+      }
+    }
+  } catch (error) {
+    console.warn('Murti photo compress for PDF failed', error);
+  }
+  return null;
+}
+
+/**
+ * Convert murti photo URI to printable data URI for PDF HTML.
+ * Large camera/gallery photos are resized so they still appear on the invoice.
+ */
+export async function resolveMurtiPhotoToPrintableDataUri(
+  murtiPhotoUri: string | null | undefined
+): Promise<string | null> {
+  if (!murtiPhotoUri) return null;
+
+  if (isAndroidSafeRasterImage(murtiPhotoUri, MAX_MURTI_DATA_URI_LENGTH)) {
+    return murtiPhotoUri;
+  }
+
+  try {
+    let source = murtiPhotoUri;
+
+    if (/^https?:\/\//i.test(murtiPhotoUri)) {
+      const dest = `${FileSystem.cacheDirectory}${CACHE_PREFIX}murti-fetch.tmp`;
+      const download = await FileSystem.downloadAsync(murtiPhotoUri, dest);
+      if (download.status < 200 || download.status >= 300) {
+        return null;
+      }
+      source = download.uri;
+    } else if (
+      !murtiPhotoUri.startsWith('data:') &&
+      !murtiPhotoUri.startsWith('file://') &&
+      !murtiPhotoUri.startsWith('content://')
+    ) {
+      source = normalizeFileUri(murtiPhotoUri);
+    }
+
+    // Prefer a direct read when the file is already small enough.
+    if (!source.startsWith('data:')) {
+      try {
+        const base64 = await FileSystem.readAsStringAsync(source, {
+          encoding: FileSystem.EncodingType.Base64,
+        });
+        const dataUri = `data:${guessImageMime(source)};base64,${base64}`;
+        if (isAndroidSafeRasterImage(dataUri, MAX_MURTI_DATA_URI_LENGTH)) {
+          return dataUri;
+        }
+      } catch {
+        // Fall through to compress (content:// / missing file handled there).
+      }
+    }
+
+    return await compressMurtiPhotoToPrintableDataUri(source);
+  } catch (error) {
+    console.warn('Murti photo resolve for PDF failed', error);
+    return null;
+  }
+}
+
+/** Booked murti image for receipt — empty when unset. */
+export async function buildNativeMurtiPhotoMarkup(
+  murtiPhotoUri: string | null | undefined
+): Promise<string> {
+  const dataUri = await resolveMurtiPhotoToPrintableDataUri(murtiPhotoUri);
+  if (!dataUri) {
+    return '';
+  }
+
+  return `<img src="${dataUri}" alt="Murti" style="${MURTI_IMG_STYLE}" />`;
 }
 
 export function nativePdfHtmlShell(htmlBody: string): string {

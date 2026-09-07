@@ -16,6 +16,7 @@ interface TelecallingFilterBarProps {
 const SHORT_LABELS: Partial<Record<TelecallingFilterId, string>> = {
   remaining: 'Remaining',
   called: 'Already called',
+  callback: 'Call Back',
   call_again: 'Call again',
   no_answer_busy: 'No answer',
   wrong_number: 'Wrong no.',

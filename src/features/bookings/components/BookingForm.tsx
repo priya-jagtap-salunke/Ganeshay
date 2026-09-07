@@ -1,7 +1,6 @@
-import { useCallback } from 'react';
+import { useEffect } from 'react';
 import { StyleSheet, View, ViewStyle } from 'react-native';
 import { Text } from 'react-native-paper';
-import { useFocusEffect } from '@react-navigation/native';
 import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { bookingSchema, BookingSchemaType } from '../schemas/bookingSchema';
@@ -10,6 +9,10 @@ import { AppDatePicker } from '@/components/ui/AppDatePicker';
 import { AppSelect } from '@/components/ui/AppSelect';
 import { AppButton } from '@/components/ui/AppButton';
 import { MurtiPhotoPicker } from './MurtiPhotoPicker';
+import {
+  consumePendingMurtiPhotoUri,
+  type MurtiPhotoPickerSession,
+} from '../utils/murtiPhotoPickerSession';
 import { formatCurrency } from '@/utils/currency';
 import { getTodayString } from '@/utils/dates';
 import { colors } from '@/theme/colors';
@@ -27,8 +30,14 @@ interface BookingFormProps {
   onSubmit: (data: BookingSchemaType) => void;
   isLoading?: boolean;
   submitLabel?: string;
-  /** Clear all fields each time this screen is opened (new booking only). */
+  /**
+   * Clear fields when this form first mounts (new booking only).
+   * Must not run on every focus — returning from the system camera also
+   * re-focuses the screen and would wipe the captured murti photo.
+   */
   resetOnFocus?: boolean;
+  /** Resume target if Android recreates the activity during murti photo pick. */
+  pickerSession?: MurtiPhotoPickerSession;
 }
 
 export function getEmptyBookingDefaults(): Partial<BookingSchemaType> {
@@ -59,12 +68,14 @@ export function BookingForm({
   isLoading,
   submitLabel = 'Save Booking',
   resetOnFocus = false,
+  pickerSession,
 }: BookingFormProps) {
   const {
     control,
     handleSubmit,
     watch,
     reset,
+    setValue,
     formState: { errors },
   } = useForm<BookingSchemaType>({
     resolver: zodResolver(bookingSchema),
@@ -74,12 +85,23 @@ export function BookingForm({
     },
   });
 
-  useFocusEffect(
-    useCallback(() => {
-      if (!resetOnFocus) return;
-      reset(getEmptyBookingDefaults());
-    }, [reset, resetOnFocus])
-  );
+  useEffect(() => {
+    let cancelled = false;
+
+    (async () => {
+      if (resetOnFocus) {
+        reset(getEmptyBookingDefaults());
+      }
+
+      const pendingUri = await consumePendingMurtiPhotoUri();
+      if (cancelled || !pendingUri) return;
+      setValue('murti_photo_uri', pendingUri, { shouldDirty: true });
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [reset, resetOnFocus, setValue]);
 
   const price = watch('price') || 0;
   const advance = watch('advance') || 0;
@@ -187,6 +209,7 @@ export function BookingForm({
             <MurtiPhotoPicker
               photoUri={value}
               onPhotoChange={onChange}
+              pickerSession={pickerSession}
             />
           )}
         />
@@ -208,7 +231,12 @@ export function BookingForm({
         />
       </View>
 
-      <AppButton onPress={handleSubmit(onSubmit)} loading={isLoading} icon="content-save">
+      <AppButton
+        onPress={handleSubmit(onSubmit)}
+        loading={isLoading}
+        disabled={isLoading}
+        icon="content-save"
+      >
         {submitLabel}
       </AppButton>
     </View>

@@ -4,7 +4,8 @@ import { BrandLogo } from '@/components/ui/BrandLogo';
 import { useBusinessDocumentSettings } from '@/features/settings/store/settingsStore';
 import { colors } from '@/theme/colors';
 
-function isRasterImageUri(uri: string): boolean {
+function isRasterImageUri(uri: string | null | undefined): uri is string {
+  if (!uri) return false;
   return (
     /^data:image\/(jpeg|jpg|png|webp|gif);/i.test(uri) ||
     uri.startsWith('file://') ||
@@ -35,7 +36,7 @@ export function BusinessLogo({
   const inset = Math.max(4, Math.round(size * 0.12));
   const innerWidth = size - inset * 2;
   const hasVendorLogo =
-    Boolean(businessLogo) && isRasterImageUri(businessLogo) && !loadFailed;
+    isRasterImageUri(businessLogo) && !loadFailed;
 
   if (!hasVendorLogo) {
     if (!showBrandFallback) return null;

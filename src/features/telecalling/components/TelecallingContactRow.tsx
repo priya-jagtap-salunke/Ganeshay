@@ -5,9 +5,11 @@ import Animated, { FadeInRight } from 'react-native-reanimated';
 import {
   TelecallingCallStatus,
   TelecallingContact,
-  getOutcomeShortLabel,
-  normalizeTelecallingStatus,
+  getContactOutcomeShortLabel,
+  isNoAnswerBusyStatus,
+  resolveTelecallingStatus,
 } from '@/types/telecalling';
+import { formatDisplayMobile } from '../utils/phoneNormalize';
 import { AppButton } from '@/components/ui/AppButton';
 import { colors } from '@/theme/colors';
 import { elevation } from '@/theme/shadows';
@@ -18,9 +20,13 @@ interface TelecallingContactRowProps {
   index?: number;
   onCall: () => void;
   onSendDetails: () => void;
+  onUpdateStatus: () => void;
+  onGotThrough?: () => void;
+  onCalledBack?: () => void;
   onDelete?: () => void;
   calling?: boolean;
   sending?: boolean;
+  updating?: boolean;
 }
 
 function formatLastCalled(value: string | null): string | null {
@@ -42,6 +48,8 @@ function outcomeTone(status: TelecallingCallStatus): {
   switch (status) {
     case 'connected':
       return { bg: colors.successContainer, fg: colors.success };
+    case 'callback':
+      return { bg: colors.goldLight, fg: colors.royalRedDark };
     case 'declined':
     case 'wrong_number':
       return { bg: colors.errorContainer, fg: colors.error };
@@ -70,20 +78,40 @@ export function TelecallingContactRow({
   index = 0,
   onCall,
   onSendDetails,
+  onUpdateStatus,
+  onGotThrough,
+  onCalledBack,
   onDelete,
   calling,
   sending,
+  updating,
 }: TelecallingContactRowProps) {
   const theme = useTheme();
-  const status = normalizeTelecallingStatus(contact.call_status);
+  const status = resolveTelecallingStatus(
+    contact.call_status,
+    contact.last_outcome_notes
+  );
   const lastCalled = formatLastCalled(contact.last_called_at);
-  const statusLabel = getOutcomeShortLabel(status);
+  const statusLabel = getContactOutcomeShortLabel(
+    status,
+    contact.last_outcome_notes
+  );
   const tone = outcomeTone(status);
   const note = noteSnippet(contact.last_outcome_notes);
+  const showRetryActions =
+    isNoAnswerBusyStatus(status) && (onGotThrough || onCalledBack);
+  const displayMobile = formatDisplayMobile(contact.mobile);
 
   const metaParts: string[] = [];
-  if (note) metaParts.push(note);
-  if (lastCalled) metaParts.push(lastCalled);
+  if (
+    note &&
+    status !== 'callback' &&
+    !note.toLowerCase().includes('called back') &&
+    !note.toLowerCase().includes('auto-detected')
+  ) {
+    metaParts.push(note);
+  }
+  if (lastCalled) metaParts.push(`Last try ${lastCalled}`);
 
   return (
     <Animated.View entering={FadeInRight.delay(index * 30).springify()}>
@@ -101,27 +129,36 @@ export function TelecallingContactRow({
       >
         <View style={styles.info}>
           <Text
-            variant="titleSmall"
-            style={{ color: theme.colors.onSurface, fontWeight: '600' }}
+            variant="titleMedium"
+            style={{ color: theme.colors.onSurface, fontWeight: '700' }}
             numberOfLines={1}
           >
             {contact.name}
           </Text>
           <Text
-            variant="bodyMedium"
+            variant="titleSmall"
             style={{
               color: theme.colors.primary,
               marginTop: 2,
-              fontWeight: '600',
+              fontWeight: '700',
+              letterSpacing: 0.3,
             }}
+            accessibilityLabel={`Phone ${displayMobile}`}
           >
-            {contact.mobile}
+            {displayMobile}
           </Text>
 
           <View style={styles.feedbackRow}>
-            <View
-              style={[styles.outcomeChip, { backgroundColor: tone.bg }]}
-              accessibilityLabel={`Last outcome: ${statusLabel}`}
+            <Pressable
+              onPress={onUpdateStatus}
+              disabled={updating}
+              accessibilityRole="button"
+              accessibilityLabel={`Update status, currently ${statusLabel}`}
+              style={({ pressed }) => [
+                styles.outcomeChip,
+                { backgroundColor: tone.bg },
+                pressed && { opacity: 0.85 },
+              ]}
             >
               <Text
                 variant="labelSmall"
@@ -130,7 +167,13 @@ export function TelecallingContactRow({
               >
                 {statusLabel}
               </Text>
-            </View>
+              <MaterialCommunityIcons
+                name="pencil-outline"
+                size={12}
+                color={tone.fg}
+                style={{ marginLeft: 2 }}
+              />
+            </Pressable>
             {metaParts.length > 0 ? (
               <Text
                 variant="bodySmall"
@@ -145,6 +188,83 @@ export function TelecallingContactRow({
               </Text>
             ) : null}
           </View>
+
+          {showRetryActions ? (
+            <View style={styles.quickRow}>
+              {onGotThrough ? (
+                <Pressable
+                  onPress={onGotThrough}
+                  disabled={updating}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Mark ${contact.name} as got through`}
+                  style={({ pressed }) => [
+                    styles.quickChip,
+                    {
+                      borderColor: colors.success,
+                      backgroundColor: colors.successContainer,
+                    },
+                    pressed && { opacity: 0.85 },
+                    updating && { opacity: 0.55 },
+                  ]}
+                >
+                  <Text
+                    variant="labelSmall"
+                    style={[styles.quickText, { color: colors.success }]}
+                  >
+                    Got through
+                  </Text>
+                </Pressable>
+              ) : null}
+              {onCalledBack ? (
+                <Pressable
+                  onPress={onCalledBack}
+                  disabled={updating}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Mark ${contact.name} as called back`}
+                  style={({ pressed }) => [
+                    styles.quickChip,
+                    {
+                      borderColor: theme.colors.primary,
+                      backgroundColor: theme.colors.primaryContainer,
+                    },
+                    pressed && { opacity: 0.85 },
+                    updating && { opacity: 0.55 },
+                  ]}
+                >
+                  <Text
+                    variant="labelSmall"
+                    style={[styles.quickText, { color: theme.colors.primary }]}
+                  >
+                    Called back
+                  </Text>
+                </Pressable>
+              ) : null}
+              <Pressable
+                onPress={onUpdateStatus}
+                disabled={updating}
+                accessibilityRole="button"
+                accessibilityLabel={`Update status for ${contact.name}`}
+                style={({ pressed }) => [
+                  styles.quickChip,
+                  {
+                    borderColor: theme.colors.outlineVariant,
+                    backgroundColor: theme.colors.surfaceVariant,
+                  },
+                  pressed && { opacity: 0.85 },
+                ]}
+              >
+                <Text
+                  variant="labelSmall"
+                  style={[
+                    styles.quickText,
+                    { color: theme.colors.onSurfaceVariant },
+                  ]}
+                >
+                  Other…
+                </Text>
+              </Pressable>
+            </View>
+          ) : null}
         </View>
 
         <View style={styles.actions}>
@@ -157,7 +277,7 @@ export function TelecallingContactRow({
             style={styles.actionBtn}
             contentStyle={styles.actionContent}
             labelStyle={styles.actionLabel}
-            accessibilityLabel={`Call ${contact.name}`}
+            accessibilityLabel={`Call ${contact.name} at ${displayMobile}`}
           >
             Call
           </AppButton>
@@ -174,6 +294,21 @@ export function TelecallingContactRow({
           >
             Send
           </AppButton>
+          {!showRetryActions ? (
+            <AppButton
+              icon="clipboard-edit-outline"
+              variant="text"
+              onPress={onUpdateStatus}
+              loading={updating}
+              compact
+              style={styles.actionBtn}
+              contentStyle={styles.actionContent}
+              labelStyle={styles.actionLabel}
+              accessibilityLabel={`Update status for ${contact.name}`}
+            >
+              Status
+            </AppButton>
+          ) : null}
         </View>
 
         {onDelete ? (
@@ -229,11 +364,29 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.sm,
     paddingVertical: 2,
     maxWidth: '55%',
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   outcomeText: {
     fontWeight: '700',
     fontSize: 11,
     letterSpacing: 0.2,
+  },
+  quickRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.xs,
+    marginTop: spacing.sm,
+  },
+  quickChip: {
+    borderRadius: radius.full,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 4,
+  },
+  quickText: {
+    fontWeight: '700',
+    fontSize: 11,
   },
   actions: {
     gap: 4,

@@ -75,6 +75,7 @@ export default function AppLayout() {
         <Tabs.Screen name="settings" options={{ href: null }} />
         <Tabs.Screen name="booking" options={{ href: null }} />
         <Tabs.Screen name="telecalling" options={{ href: null }} />
+        <Tabs.Screen name="telemessaging" options={{ href: null }} />
         {/* Route kept registered but unreachable without FAB; screen itself is gated by AI_HUB_ENABLED */}
         <Tabs.Screen name="assistant" options={{ href: null }} />
       </Tabs>
