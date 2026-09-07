@@ -51,7 +51,6 @@ export function TeleMessagingPanel() {
 
   const [filter, setFilter] = useState<TeleMessagingFilterId>('pending');
   const [searchQuery, setSearchQuery] = useState('');
-  const [sendingId, setSendingId] = useState<string | null>(null);
 
   const contactCount = contacts?.length ?? 0;
 
@@ -109,7 +108,7 @@ export function TeleMessagingPanel() {
   };
 
   const sendPredraft = async (contact: TelecallingContact) => {
-    setSendingId(contact.id);
+    // No spinner — open WhatsApp immediately.
     try {
       await sharePredraftedMessageOnWhatsApp(
         {
@@ -126,13 +125,11 @@ export function TeleMessagingPanel() {
           getErrorMessage(error) || 'Could not open WhatsApp.'
         );
       }
-    } finally {
-      setSendingId(null);
     }
   };
 
   const sendCatalogue = async (contact: TelecallingContact) => {
-    setSendingId(contact.id);
+    // No spinner — open WhatsApp with catalogue PDF immediately.
     try {
       await shareCatalogOnWhatsApp(
         {
@@ -149,12 +146,10 @@ export function TeleMessagingPanel() {
           getErrorMessage(error) || 'Could not share catalogue.'
         );
       }
-    } finally {
-      setSendingId(null);
     }
   };
 
-  /** Open WhatsApp immediately — no Messages / details-vs-catalogue chooser. */
+  /** Send opens WhatsApp directly — no chooser / Alert. */
   const handleSendWhatsApp = (contact: TelecallingContact) => {
     void sendPredraft(contact);
   };
@@ -228,7 +223,6 @@ export function TeleMessagingPanel() {
               onSendWhatsApp={() => handleSendWhatsApp(item)}
               onSendCatalogue={() => handleSendCatalogue(item)}
               showCatalogue={Boolean(settings.murtiesPdfUri)}
-              sending={sendingId === item.id}
             />
           )}
         />

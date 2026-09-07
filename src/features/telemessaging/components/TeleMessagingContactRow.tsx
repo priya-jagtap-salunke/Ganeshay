@@ -19,7 +19,6 @@ interface TeleMessagingContactRowProps {
   onSendWhatsApp: () => void;
   onSendCatalogue?: () => void;
   showCatalogue?: boolean;
-  sending?: boolean;
 }
 
 function formatLastMessaged(value: string | null): string | null {
@@ -50,7 +49,6 @@ export function TeleMessagingContactRow({
   onSendWhatsApp,
   onSendCatalogue,
   showCatalogue,
-  sending,
 }: TeleMessagingContactRowProps) {
   const theme = useTheme();
   const status = normalizeTeleMessagingStatus(contact.message_status);
@@ -128,7 +126,6 @@ export function TeleMessagingContactRow({
             icon="whatsapp"
             variant="saffron"
             onPress={onSendWhatsApp}
-            loading={sending}
             compact
             style={styles.actionBtn}
             contentStyle={styles.actionContent}
@@ -142,12 +139,11 @@ export function TeleMessagingContactRow({
               icon="file-pdf-box"
               variant="tonal"
               onPress={onSendCatalogue}
-              loading={sending}
               compact
               style={styles.actionBtn}
               contentStyle={styles.actionContent}
               labelStyle={styles.actionLabel}
-              accessibilityLabel={`Send catalogue to ${contact.name}`}
+              accessibilityLabel={`Send catalogue PDF to ${contact.name}`}
             >
               Catalogue
             </AppButton>

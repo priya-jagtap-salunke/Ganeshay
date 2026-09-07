@@ -1,22 +1,26 @@
 diff --git a/node_modules/react-native-share/android/src/main/java/cl/json/social/WhatsAppBusinessShare.java b/node_modules/react-native-share/android/src/main/java/cl/json/social/WhatsAppBusinessShare.java
-index 47b377a..d0f40b7 100644
+index 47b377a..0288c0d 100644
 --- a/node_modules/react-native-share/android/src/main/java/cl/json/social/WhatsAppBusinessShare.java
 +++ b/node_modules/react-native-share/android/src/main/java/cl/json/social/WhatsAppBusinessShare.java
-@@ -1,49 +1,29 @@
+@@ -1,50 +1,41 @@
  package cl.json.social;
  
  import android.content.ActivityNotFoundException;
 -import android.content.ComponentName;
++import android.content.Intent;
  
++import com.facebook.react.bridge.Arguments;
  import com.facebook.react.bridge.ReactApplicationContext;
  import com.facebook.react.bridge.ReadableMap;
++import com.facebook.react.bridge.WritableMap;
  
  /**
   * Created by vijay(vijay@gemsessence.com) on 07-June-2021.
 + *
-+ * Patched: do not pre-open Conversation before the SEND intent.
-+ * That two-step dance often shows a blank chat and drops PDF EXTRA_STREAM.
-+ * jid is already set in ShareIntent.open when whatsAppNumber is provided.
++ * Patched:
++ * - Do not pre-open Conversation before the SEND intent.
++ * - Never use Intent.createChooser (that shows Messages vs WhatsApp).
++ * - Start WhatsApp Business package directly.
   */
  public class WhatsAppBusinessShare extends SingleShareIntent {
  
@@ -50,31 +54,44 @@ index 47b377a..d0f40b7 100644
 -        }
 -
 -        // restore default behavior to share to conversation
++        this.getIntent().setPackage(PACKAGE);
          this.getIntent().setComponent(null);
 -
 -        //  extra params here
-         this.openIntentChooser();
+-        this.openIntentChooser();
++        this.getIntent().addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
++        // Direct start — no createChooser / system app picker.
++        this.reactContext.startActivity(this.getIntent());
++        WritableMap reply = Arguments.createMap();
++        reply.putBoolean("success", true);
++        reply.putString("message", PACKAGE);
++        TargetChosenReceiver.callbackResolve(reply);
      }
      @Override
+     protected String getPackage() {
 diff --git a/node_modules/react-native-share/android/src/main/java/cl/json/social/WhatsAppShare.java b/node_modules/react-native-share/android/src/main/java/cl/json/social/WhatsAppShare.java
-index 17fb272..b39d37d 100644
+index 17fb272..2e33326 100644
 --- a/node_modules/react-native-share/android/src/main/java/cl/json/social/WhatsAppShare.java
 +++ b/node_modules/react-native-share/android/src/main/java/cl/json/social/WhatsAppShare.java
-@@ -1,49 +1,29 @@
+@@ -1,50 +1,41 @@
  package cl.json.social;
  
  import android.content.ActivityNotFoundException;
 -import android.content.ComponentName;
++import android.content.Intent;
  
++import com.facebook.react.bridge.Arguments;
  import com.facebook.react.bridge.ReactApplicationContext;
  import com.facebook.react.bridge.ReadableMap;
++import com.facebook.react.bridge.WritableMap;
  
  /**
   * Created by disenodosbbcl on 23-07-16.
 + *
-+ * Patched: do not pre-open Conversation before the SEND intent.
-+ * That two-step dance often shows a blank chat and drops PDF EXTRA_STREAM.
-+ * jid is already set in ShareIntent.open when whatsAppNumber is provided.
++ * Patched:
++ * - Do not pre-open Conversation before the SEND intent.
++ * - Never use Intent.createChooser (that shows Messages vs WhatsApp).
++ * - Start WhatsApp package directly.
   */
  public class WhatsAppShare extends SingleShareIntent {
  
@@ -108,9 +125,263 @@ index 17fb272..b39d37d 100644
 -        }
 -
 -        // restore default behavior to share to conversation
++        this.getIntent().setPackage(PACKAGE);
          this.getIntent().setComponent(null);
 -
 -        //  extra params here
-         this.openIntentChooser();
+-        this.openIntentChooser();
++        this.getIntent().addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
++        // Direct start — no createChooser / system app picker.
++        this.reactContext.startActivity(this.getIntent());
++        WritableMap reply = Arguments.createMap();
++        reply.putBoolean("success", true);
++        reply.putString("message", PACKAGE);
++        TargetChosenReceiver.callbackResolve(reply);
      }
      @Override
+     protected String getPackage() {
+diff --git a/node_modules/react-native-share/ios/WhatsAppShare.m b/node_modules/react-native-share/ios/WhatsAppShare.m
+index e298cd6..64a9b8f 100644
+--- a/node_modules/react-native-share/ios/WhatsAppShare.m
++++ b/node_modules/react-native-share/ios/WhatsAppShare.m
+@@ -2,8 +2,11 @@
+ //  WhatsAppShare.m
+ //  RNShare
+ //
+-//  Created by Diseño Uno BBCL on 23-07-16.
+-//  Copyright © 2016 Facebook. All rights reserved.
++//  Patched for Ganeshay — match Android WhatsApp file share behavior on iOS:
++//  - Allow file-only shares (PDF/image) without requiring `message`.
++//  - Detect .pdf and share as a document (stock code sent the path as text).
++//  - Use WhatsApp-specific UTIs so Open In prefers WhatsApp (not Messages).
++//  - When whatsAppNumber is set, open that customer chat then attach the file.
+ //
+ 
+ #import "WhatsAppShare.h"
+@@ -11,6 +14,7 @@
+ typedef NS_ENUM(NSInteger, MessageType) {
+   MessageTypeImage,
+   MessageTypeVideo,
++  MessageTypeDocument,
+   MessageTypeText
+ };
+ 
+@@ -45,51 +49,120 @@ resolve:(RCTPromiseResolveBlock)resolve {
+         [self tryToSendVideo: options resolve:resolve reject:reject];
+         break;
+ 
++      case MessageTypeDocument:
++        [self tryToSendDocument: options resolve:resolve reject:reject];
++        break;
++        
+       default:
+         [self tryToSendText: options resolve:resolve reject:reject];
+     }
+     
+ }
+ 
++-(void)openCustomerChatIfNeeded:(NSDictionary *)options {
++  NSString *whatsAppNumber = [RCTConvert NSString:options[@"whatsAppNumber"]];
++  if (!whatsAppNumber || whatsAppNumber.length == 0) {
++    return;
++  }
++  // Same as Android jid: land on this customer's chat before attaching media.
++  NSString *openChat = [NSString stringWithFormat:@"whatsapp://send?phone=%@", whatsAppNumber];
++  NSURL *chatURL = [NSURL URLWithString:openChat];
++  if (chatURL && [[UIApplication sharedApplication] canOpenURL:chatURL]) {
++    [[UIApplication sharedApplication] openURL:chatURL options:@{} completionHandler:nil];
++  }
++}
++
++-(NSString *)filePathFromOptions:(NSDictionary *)options {
++  NSString *urlString = [RCTConvert NSString:options[@"url"]];
++  if (!urlString || urlString.length == 0) {
++    return nil;
++  }
++  if ([urlString hasPrefix:@"file://"]) {
++    NSString *path = [urlString substringFromIndex:7];
++    if ([path hasPrefix:@"//"]) {
++      path = [path substringFromIndex:1];
++    }
++    return path;
++  }
++  return urlString;
++}
++
+ -(void)tryToSendImage:(NSDictionary *)options
+               resolve:(RCTPromiseResolveBlock)resolve
+               reject:(RCTPromiseRejectBlock)reject {
+-  UIImage *image;
+   NSURL *imageURL = [RCTConvert NSURL:options[@"url"]];
+-  if(imageURL){
+-    if (imageURL.fileURL || [imageURL.scheme.lowercaseString isEqualToString:@"data"]) {
+-        NSError *error;
+-        NSData *data = [NSData dataWithContentsOfURL:imageURL
+-                                             options:(NSDataReadingOptions)0
+-                                               error:&error];
+-        if (!data) {
+-          return [self handleError:@"Something went wrong" code:2 rejectFn:reject];
+-        }
+-      
+-        image = [UIImage imageWithData: data];
+-        NSString * documentsPath = [NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES) objectAtIndex:0];
+-        NSString * filePath = [documentsPath stringByAppendingPathComponent:@"/whatsAppTmp.wai"];
+-        
+-        [UIImageJPEGRepresentation(image, 1.0) writeToFile:filePath atomically:YES];
++  if (!imageURL) {
++    return [self handleError:@"Something went wrong" code:3 rejectFn:reject];
++  }
+ 
+-        [self shareMedia:filePath documentUTI:@"net.whatsapp.image"];
++  if (!(imageURL.fileURL || [imageURL.scheme.lowercaseString isEqualToString:@"data"])) {
++    return [self handleError:@"Something went wrong" code:3 rejectFn:reject];
++  }
+ 
+-        resolve(@[@true, @""]);
+-    }
++  NSError *error;
++  NSData *data = [NSData dataWithContentsOfURL:imageURL
++                                       options:(NSDataReadingOptions)0
++                                         error:&error];
++  if (!data) {
++    return [self handleError:@"Something went wrong" code:2 rejectFn:reject];
++  }
+ 
+-  }else {
+-    [self handleError:@"Something went wrong" code:3 rejectFn:reject];
++  UIImage *image = [UIImage imageWithData:data];
++  if (!image) {
++    return [self handleError:@"Something went wrong" code:2 rejectFn:reject];
+   }
+ 
++  NSString *documentsPath = [NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES) objectAtIndex:0];
++  // .wai + net.whatsapp.image → WhatsApp-only Open In (same pattern as stock RN Share).
++  NSString *filePath = [documentsPath stringByAppendingPathComponent:@"whatsAppTmp.wai"];
++  [UIImageJPEGRepresentation(image, 1.0) writeToFile:filePath atomically:YES];
++
++  [self openCustomerChatIfNeeded:options];
++  [self shareMedia:filePath documentUTI:@"net.whatsapp.image"];
++  resolve(@[@true, @""]);
+ }
+ 
+ -(void)tryToSendVideo:(NSDictionary *)options
+               resolve:(RCTPromiseResolveBlock)resolve
+               reject:(RCTPromiseRejectBlock)reject {
++  NSString *path = [self filePathFromOptions:options];
++  if (!path) {
++    return [self handleError:@"Something went wrong" code:2 rejectFn:reject];
++  }
++  [self openCustomerChatIfNeeded:options];
++  [self shareMedia:path documentUTI:@"net.whatsapp.movie"];
++  resolve(@[@true, @""]);
++}
++
++/**
++ * PDF share — attach the file into WhatsApp (Android parity).
++ * Opens the customer chat when whatsAppNumber is set, then shares via
++ * WhatsApp document UTI so the system prefers WhatsApp over Messages.
++ */
++-(void)tryToSendDocument:(NSDictionary *)options
++                 resolve:(RCTPromiseResolveBlock)resolve
++                  reject:(RCTPromiseRejectBlock)reject {
++  NSString *path = [self filePathFromOptions:options];
++  if (!path) {
++    return [self handleError:@"Something went wrong" code:2 rejectFn:reject];
++  }
+ 
+-  NSLog(@"Sending whatsapp movie");
+-  [self shareMedia:options[@"url"] documentUTI:@"net.whatsapp.movie"];
+-  NSLog(@"Done whatsapp movie");
++  // Ensure a real .pdf on disk for document interaction.
++  NSString *sharePath = path;
++  if (![path.lowercaseString hasSuffix:@".pdf"]) {
++    NSString *documentsPath = [NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES) objectAtIndex:0];
++    sharePath = [documentsPath stringByAppendingPathComponent:@"whatsAppCatalog.pdf"];
++    NSError *copyError = nil;
++    [[NSFileManager defaultManager] removeItemAtPath:sharePath error:nil];
++    BOOL copied = [[NSFileManager defaultManager] copyItemAtPath:path toPath:sharePath error:&copyError];
++    if (!copied) {
++      sharePath = path;
++    }
++  }
++
++  [self openCustomerChatIfNeeded:options];
++  // WhatsApp-targeted UTI first (often skips Messages). Fallback UTI also set below if needed.
++  [self shareMedia:sharePath documentUTI:@"net.whatsapp.document"];
+   resolve(@[@true, @""]);
+ }
+ 
+@@ -98,7 +171,18 @@ resolve:(RCTPromiseResolveBlock)resolve {
+              reject:(RCTPromiseRejectBlock)reject {
+   
+   NSString *text = [RCTConvert NSString:options[@"message"]];
+-  text = [text stringByAppendingString: [@" " stringByAppendingString: options[@"url"]] ];
++  if (!text) {
++    text = @"";
++  }
++  // Never append PDF file paths as text (that looked like a "text-only" send).
++  NSString *urlPart = [RCTConvert NSString:options[@"url"]];
++  if (urlPart && urlPart.length > 0 && ![urlPart.lowercaseString containsString:@".pdf"]) {
++    NSArray *imageExtensions = @[@"png", @"jpeg", @"jpg", @"gif", @"webp"];
++    BOOL isImage = [self isMediaType:urlPart mediaExtensions:imageExtensions];
++    if (!isImage) {
++      text = [text stringByAppendingString:[@" " stringByAppendingString:urlPart]];
++    }
++  }
+   NSString *whatsAppNumber = [RCTConvert NSString:options[@"whatsAppNumber"]];
+   
+   text = (NSString*)CFBridgingRelease(CFURLCreateStringByAddingPercentEscapes(NULL,(CFStringRef) text, NULL,CFSTR("!*'();:@&=+$,/?%#[]"),kCFStringEncodingUTF8));
+@@ -114,7 +198,16 @@ resolve:(RCTPromiseResolveBlock)resolve {
+ 
+ 
+ -(MessageType)getMessageType: (NSString *)url {
+-  NSArray *imageExtensions = @[@"png", @"jpeg",@"jpg",@"gif"];
++  if (!url) {
++    return MessageTypeText;
++  }
++
++  NSString *lower = [url lowercaseString];
++  if ([lower rangeOfString:@".pdf"].location != NSNotFound) {
++    return MessageTypeDocument;
++  }
++
++  NSArray *imageExtensions = @[@"png", @"jpeg",@"jpg",@"gif", @"webp"];
+   if([self isMediaType:url mediaExtensions: imageExtensions]){
+     return MessageTypeImage;
+   }
+@@ -141,7 +234,6 @@ resolve:(RCTPromiseResolveBlock)resolve {
+     NSLog(@"WhastApp installed");
+     return true;
+   }else {
+-      // Cannot open whatsapp
+       NSString *appStoreStringURL = @"https://itunes.apple.com/app/whatsapp-messenger/id310633997";
+       NSURL *appStoreURL = [NSURL URLWithString:appStoreStringURL];
+       [[UIApplication sharedApplication] openURL:appStoreURL options:@{} completionHandler:nil];
+@@ -159,6 +251,10 @@ resolve:(RCTPromiseResolveBlock)resolve {
+ 
+ 
+ -(BOOL)isAbleToSendMessage:(NSDictionary *) options {
++  // File-only PDF/image shares must not require `message` (stock hung forever).
++  if([options objectForKey:@"url"] && [options objectForKey:@"url"] != [NSNull null]){
++    return TRUE;
++  }
+   if([options objectForKey:@"message"] && [options objectForKey:@"message"] != [NSNull null]){
+     return TRUE;
+   }
+@@ -170,7 +266,15 @@ resolve:(RCTPromiseResolveBlock)resolve {
+   documentInteractionController = [UIDocumentInteractionController interactionControllerWithURL:filePath];
+   documentInteractionController.UTI = documentUTI;
+   documentInteractionController.delegate = self;
+-  [documentInteractionController presentOpenInMenuFromRect:CGRectZero inView:[[[[[UIApplication sharedApplication] delegate] window] rootViewController] view] animated:YES];
++
++  UIView *rootView = [[[[[UIApplication sharedApplication] delegate] window] rootViewController] view];
++  // If only WhatsApp handles this UTI, iOS opens WhatsApp directly (no Message picker).
++  BOOL presented = [documentInteractionController presentOpenInMenuFromRect:CGRectZero inView:rootView animated:YES];
++  if (!presented && ![documentUTI isEqualToString:@"com.adobe.pdf"]) {
++    // Fallback for PDF when net.whatsapp.document is not registered.
++    documentInteractionController.UTI = @"com.adobe.pdf";
++    [documentInteractionController presentOpenInMenuFromRect:CGRectZero inView:rootView animated:YES];
++  }
+ }
+ 
+ @end

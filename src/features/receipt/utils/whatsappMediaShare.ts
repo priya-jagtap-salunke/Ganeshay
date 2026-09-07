@@ -6,7 +6,6 @@ import {
 import * as FileSystem from 'expo-file-system';
 import Share from 'react-native-share';
 import {
-  openDeviceWhatsAppApp,
   whatsAppSocialForKind,
   type WhatsAppAppKind,
 } from './whatsappApp';
@@ -28,6 +27,7 @@ export type WhatsAppMediaShareParams = {
   /**
    * Optional caption. On media-follow-up after openDeviceWhatsAppApp,
    * omit this — EXTRA_TEXT + EXTRA_STREAM often drops the file.
+   * Never set for catalogue/invoice PDFs.
    */
   message?: string;
   /**
@@ -42,7 +42,7 @@ export type WhatsAppMediaShareParams = {
   forceDialog?: boolean;
 };
 
-const SHARE_TIMEOUT_MS = 12_000;
+const SHARE_TIMEOUT_MS = 8_000;
 
 function ensureFileUrl(uri: string): string {
   if (
@@ -159,84 +159,82 @@ async function prepareShareableFileUrl(
 }
 
 /**
- * iOS cannot attach files to WhatsApp without the system share / Open In sheet
- * (Messages vs WhatsApp). Always open the customer chat directly instead.
- */
-async function openIosWhatsAppChat(params: {
-  phone: string;
-  appKind: WhatsAppAppKind;
-  title: string;
-  message?: string;
-  targetPhone: boolean;
-}): Promise<void> {
-  if (!params.targetPhone) {
-    // Follow-up attach would show Messages vs WhatsApp — skip it.
-    return;
-  }
-
-  const text =
-    params.message?.trim() ||
-    params.title.trim() ||
-    '🙏 Shared from Ganeshay';
-
-  await openDeviceWhatsAppApp(params.phone, text, params.appKind);
-}
-
-/**
  * Share a single file to WhatsApp / WhatsApp Business (Android + iOS).
  *
- * Android: native package Intent — opens WhatsApp directly with the file.
- * iOS: open the customer WhatsApp chat directly (no Messages/WhatsApp sheet).
- *      iOS has no public API to attach a PDF/image to WhatsApp without that sheet.
+ * Same behavior on both platforms:
+ * - Opens the customer's WhatsApp chat when targetPhone is true
+ * - Attaches the PDF / image (no text-only substitute)
+ * - Android: package Intent with EXTRA_STREAM
+ * - iOS: patched WhatsAppShare (customer chat + WhatsApp document/image UTI)
  */
 export async function shareWhatsAppMedia(
   params: WhatsAppMediaShareParams
 ): Promise<void> {
   const social = whatsAppSocialForKind(Share, params.appKind);
   const targetPhone = params.targetPhone !== false;
-  const message = params.message?.trim() ? params.message : undefined;
+  const isPdf = isPdfShare(params.type, params.url);
+  // Never caption PDFs — EXTRA_TEXT / iOS text path drops or replaces the file.
+  const message =
+    !isPdf && params.message?.trim() ? params.message : undefined;
   const filename = filenameWithoutExtension(params.filename, params.type);
-
-  if (Platform.OS === 'ios') {
-    await openIosWhatsAppChat({
-      phone: params.phone,
-      appKind: params.appKind,
-      title: params.title,
-      message,
-      targetPhone,
-    });
-    return;
-  }
-
   const url = await prepareShareableFileUrl(
     params.url,
     params.type,
     params.filename
   );
 
-  // Android: bypass normalizeSingleShareOptions (url → urls / SEND_MULTIPLE).
-  const NativeRNShare =
-    TurboModuleRegistry.getEnforcing<RNShareNativeModule>('RNShare');
+  if (Platform.OS === 'android') {
+    const NativeRNShare =
+      TurboModuleRegistry.getEnforcing<RNShareNativeModule>('RNShare');
 
-  const options: Record<string, unknown> = {
-    title: params.title,
-    social,
-    url,
-    type: params.type,
-    useInternalStorage: true,
-  };
-  if (filename) options.filename = filename;
-  if (message) options.message = message;
-  if (targetPhone) options.whatsAppNumber = params.phone;
-  // Never use forceDialog for the default path — that shows a system chooser
-  // (Messages / WhatsApp). Only when the caller explicitly requests it.
-  if (params.forceDialog) {
-    options.forceDialog = true;
+    const options: Record<string, unknown> = {
+      title: params.title,
+      social,
+      url,
+      type: params.type,
+      useInternalStorage: true,
+    };
+    if (filename) options.filename = filename;
+    if (message) options.message = message;
+    if (targetPhone) options.whatsAppNumber = params.phone;
+    if (params.forceDialog) {
+      options.forceDialog = true;
+    }
+
+    await withTimeout(
+      NativeRNShare.shareSingle(options),
+      SHARE_TIMEOUT_MS,
+      'WhatsApp share timed out. Please try again.'
+    );
+    return;
   }
 
-  await withTimeout(
-    NativeRNShare.shareSingle(options),
-    SHARE_TIMEOUT_MS,
-    'WhatsApp share timed out. Please try again.'
-  );
+  // iOS — same customer-targeted file share as Android (patched native module).
+  // Resolve quickly: native presents WhatsApp / Open In and returns; a long wait
+  // made the UI look "stuck loading" even after WhatsApp opened.
+  try {
+    await withTimeout(
+      Share.shareSingle({
+        title: params.title,
+        social: Share.Social.WHATSAPP,
+        url,
+        type: params.type,
+        ...(filename ? { filename } : {}),
+        ...(message ? { message } : {}),
+        ...(targetPhone ? { whatsAppNumber: params.phone } : {}),
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any),
+      3000,
+      'WhatsApp share launched'
+    );
+  } catch (error) {
+    const msg = (
+      error instanceof Error ? error.message : String(error)
+    ).toLowerCase();
+    // Native may not settle the promise after presenting WhatsApp — treat as OK.
+    if (msg.includes('launched') || msg.includes('timed out')) {
+      return;
+    }
+    throw error;
+  }
 }

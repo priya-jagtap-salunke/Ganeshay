@@ -244,10 +244,8 @@ async function attachReceiptImage(params: {
 }
 
 /**
- * Attach an invoice/catalog PDF to WhatsApp.
- *
- * Android: open the customer's WhatsApp chat with the PDF attached.
- * iOS: open the customer's WhatsApp chat directly (no Messages vs WhatsApp sheet).
+ * Attach an invoice/catalog PDF to WhatsApp (Android + iOS).
+ * Opens the customer's chat with the PDF attached — same as Android.
  */
 async function attachReceiptPdf(params: {
   phone: string;
@@ -268,9 +266,7 @@ async function attachReceiptPdf(params: {
       url: pdfUri,
       type: 'application/pdf',
       filename: pdfFilename,
-      // Never caption PDF on Android — EXTRA_TEXT + EXTRA_STREAM often drops it.
-      // On iOS this title is used as the chat draft when opening WhatsApp.
-      message: Platform.OS === 'ios' ? pdfTitle : undefined,
+      // Never caption PDF — EXTRA_TEXT / text path drops the document.
       targetPhone: true,
     });
     return;
@@ -278,25 +274,23 @@ async function attachReceiptPdf(params: {
     if (isUserCancelledShare(attachError)) throw attachError;
   }
 
-  // Android retry with alternate targeting; never show a system share sheet.
-  if (Platform.OS === 'android') {
-    try {
-      await shareWhatsAppMedia({
-        title: pdfTitle,
-        phone,
-        appKind,
-        url: pdfUri,
-        type: 'application/pdf',
-        filename: pdfFilename,
-        targetPhone: true,
-      });
-      return;
-    } catch (retryError) {
-      if (isUserCancelledShare(retryError)) throw retryError;
-    }
+  // Retry once (e.g. consumer ↔ business), still no system chooser.
+  try {
+    await shareWhatsAppMedia({
+      title: pdfTitle,
+      phone,
+      appKind,
+      url: pdfUri,
+      type: 'application/pdf',
+      filename: pdfFilename,
+      targetPhone: true,
+    });
+    return;
+  } catch (retryError) {
+    if (isUserCancelledShare(retryError)) throw retryError;
   }
 
-  // Last resort: open the customer chat directly (no Messages / WhatsApp picker).
+  // Last resort: at least open the customer chat.
   await openDeviceWhatsAppApp(phone, pdfTitle, appKind);
 }
 

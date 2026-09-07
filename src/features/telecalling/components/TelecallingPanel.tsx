@@ -89,7 +89,6 @@ export function TelecallingPanel() {
   const [searchQuery, setSearchQuery] = useState('');
   const [importing, setImporting] = useState(false);
   const [callingId, setCallingId] = useState<string | null>(null);
-  const [sendingId, setSendingId] = useState<string | null>(null);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [outcomeContact, setOutcomeContact] =
     useState<TelecallingContact | null>(null);
@@ -294,7 +293,7 @@ export function TelecallingPanel() {
   };
 
   const handleSendDetails = async (contact: TelecallingContact) => {
-    setSendingId(contact.id);
+    // No spinner — open WhatsApp immediately.
     try {
       await shareStallDetailsOnWhatsApp(
         {
@@ -305,8 +304,6 @@ export function TelecallingPanel() {
       );
     } catch (err) {
       Alert.alert('WhatsApp Error', getErrorMessage(err));
-    } finally {
-      setSendingId(null);
     }
   };
 
@@ -651,7 +648,7 @@ export function TelecallingPanel() {
         style={styles.listFlex}
         data={displayedContacts}
         keyExtractor={(item) => item.id}
-        extraData={{ filter, searchQuery, callingId, sendingId, updatingId }}
+        extraData={{ filter, searchQuery, callingId, updatingId }}
         contentContainerStyle={styles.listContent}
         keyboardShouldPersistTaps="handled"
         renderItem={({ item, index }) => {
@@ -668,7 +665,7 @@ export function TelecallingPanel() {
               }}
               index={index}
               calling={callingId === item.id}
-              sending={sendingId === item.id}
+              sending={false}
               updating={updatingId === item.id}
               onCall={() => handleCall(item)}
               onSendDetails={() => handleSendDetails(item)}

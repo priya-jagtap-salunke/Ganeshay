@@ -196,9 +196,7 @@ export interface StallDetailsShareRecipient {
  * Opens installed WhatsApp / WhatsApp Business directly, prefills the stall
  * message, attaches the settings banner image (primary), then optional PDF.
  *
- * Android: message via package intent, then banner via single-file ACTION_SEND.
- * iOS: open WhatsApp chat with prefilled message only (no system share sheet —
- *      that sheet shows Messages vs WhatsApp).
+ * Android + iOS: message via URL/intent, then banner, then optional PDF.
  */
 export async function shareStallDetailsOnWhatsApp(
   recipient: StallDetailsShareRecipient,
@@ -266,15 +264,7 @@ export async function shareStallDetailsOnWhatsApp(
   }
 
   const runShare = async (appKind: WhatsAppAppKind) => {
-    // iOS: open WhatsApp chat directly via URL scheme only.
-    // Do not use shareSingle / expo-sharing for media — both present the
-    // system "Open In" / share sheet with Messages and WhatsApp.
-    if (Platform.OS === 'ios') {
-      await openDeviceWhatsAppApp(phone, message, appKind);
-      return;
-    }
-
-    // Message only (no banner): open chat with prefilled text, then PDF.
+    // Same sequence on Android and iOS: message → banner → optional PDF.
     if (!shareableBanner) {
       if (shareablePdfUri) {
         await shareAndroidMessageThenPdf({
@@ -290,7 +280,6 @@ export async function shareStallDetailsOnWhatsApp(
       return;
     }
 
-    // Banner + message (+ optional PDF) — Android sequence.
     await shareAndroidMessageThenBanner({
       phone,
       message,
@@ -320,8 +309,7 @@ export async function shareStallDetailsOnWhatsApp(
     // Last resort: always get the message into the chat; retry banner if possible.
     try {
       await openDeviceWhatsAppApp(phone, message, installedApp);
-      // iOS: never present the system share / Open In sheet (Messages vs WhatsApp).
-      if (Platform.OS === 'ios' || !shareableBanner) return;
+      if (!shareableBanner) return;
 
       await delay(ANDROID_STEP_DELAY_MS);
       await shareMediaOnly({

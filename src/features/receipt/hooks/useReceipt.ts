@@ -27,7 +27,11 @@ export function useReceipt() {
   const sendInFlight = useRef(false);
 
   const getOrCreatePdf = useCallback(
-    async (booking: Booking, forceRefresh = false): Promise<string> => {
+    async (
+      booking: Booking,
+      forceRefresh = false,
+      options?: { silent?: boolean }
+    ): Promise<string> => {
       if (forceRefresh) {
         invalidateReceiptCache(booking.id);
       }
@@ -37,7 +41,8 @@ export function useReceipt() {
         return cached;
       }
 
-      setIsGenerating(true);
+      const silent = options?.silent === true;
+      if (!silent) setIsGenerating(true);
       try {
         return await generateReceiptPdf(booking, settings);
       } catch (error) {
@@ -48,7 +53,7 @@ export function useReceipt() {
         );
         throw error;
       } finally {
-        setIsGenerating(false);
+        if (!silent) setIsGenerating(false);
       }
     },
     [settings]
@@ -103,7 +108,6 @@ export function useReceipt() {
   ) => {
     if (sendInFlight.current) return;
     sendInFlight.current = true;
-    setActiveAction('whatsapp');
 
     try {
       if (!(booking.customer_name ?? '').trim()) {
@@ -122,13 +126,12 @@ export function useReceipt() {
         return;
       }
 
-      const pdfUri = await getOrCreatePdf(booking, false);
-      setActiveAction(null);
+      // Silent PDF prep — no button spinner while WhatsApp opens.
+      const pdfUri = await getOrCreatePdf(booking, false, { silent: true });
       await shareReceiptViaWhatsApp(booking, pdfUri, options);
     } catch {
       // Errors surfaced via Alert
     } finally {
-      setActiveAction(null);
       sendInFlight.current = false;
     }
   };
@@ -137,7 +140,6 @@ export function useReceipt() {
   const shareBookingDetailsOnWhatsApp = async (booking: Booking) => {
     if (sendInFlight.current) return;
     sendInFlight.current = true;
-    setActiveAction('whatsapp-details');
     try {
       await shareNewBookingDetailsOnWhatsApp(booking);
     } catch (error) {
@@ -147,29 +149,20 @@ export function useReceipt() {
         getErrorMessage(error) || 'Could not open WhatsApp. Please try again.'
       );
     } finally {
-      setActiveAction(null);
       sendInFlight.current = false;
     }
   };
 
-  /** New Booking / booking detail — invoice PDF only. */
+  /** New Booking / booking detail — invoice PDF only (no loading spinner). */
   const shareInvoicePdfOnWhatsApp = async (booking: Booking) => {
     if (sendInFlight.current) return;
     sendInFlight.current = true;
-    setActiveAction('whatsapp-pdf');
     try {
-      // Use cache when available — regenerating every tap made Send look stuck.
-      // Cache is invalidated on booking edit via invalidatePdf.
-      const pdfUri = await getOrCreatePdf(booking, false);
-      // Clear spinner before WhatsApp opens so the button doesn't spin forever
-      // while the share sheet / WhatsApp activity is active.
-      setActiveAction(null);
+      const pdfUri = await getOrCreatePdf(booking, false, { silent: true });
       await shareNewBookingInvoicePdfOnWhatsApp(booking, pdfUri);
     } catch (error) {
-      // getOrCreatePdf / shareNewBookingInvoicePdfOnWhatsApp already Alert.
       console.warn('Share invoice PDF failed', error);
     } finally {
-      setActiveAction(null);
       sendInFlight.current = false;
     }
   };
