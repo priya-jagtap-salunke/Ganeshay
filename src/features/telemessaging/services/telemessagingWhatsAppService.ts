@@ -8,14 +8,9 @@ import {
   openDeviceWhatsAppApp,
   resolveInstalledWhatsAppApp,
   showWhatsAppMissingAlert,
-  type WhatsAppAppKind,
 } from '@/features/receipt/utils/whatsappApp';
-import { shareWhatsAppMedia } from '@/features/receipt/utils/whatsappMediaShare';
 import { buildStallDetailsWhatsAppMessage } from '@/features/telecalling/utils/stallDetailsWhatsAppMessage';
-import {
-  downloadMurtiesPdfOnWeb,
-  ensureShareableMurtiesPdfUri,
-} from '@/features/settings/utils/murtiesPdfStorage';
+import { downloadMurtiesPdfOnWeb } from '@/features/settings/utils/murtiesPdfStorage';
 import { useSettingsStore } from '@/features/settings/store/settingsStore';
 
 export interface TeleMessagingShareRecipient {
@@ -24,19 +19,6 @@ export interface TeleMessagingShareRecipient {
 }
 
 const DEFAULT_CATALOG_FILENAME = 'Ganesha_Murties_Catalog.pdf';
-
-function isUserCancelledShare(error: unknown): boolean {
-  const msg = (
-    error instanceof Error ? error.message : String(error)
-  ).toLowerCase();
-  return (
-    msg.includes('user did not share') ||
-    msg.includes('user cancelled') ||
-    msg.includes('user canceled') ||
-    msg.includes('ecancelled') ||
-    msg.includes('ecanceled')
-  );
-}
 
 function catalogFilename(settings: BusinessSettings): string {
   const name = (settings.murtiesPdfName ?? '').trim();
@@ -58,44 +40,8 @@ function resolveCatalogSettings(
 }
 
 /**
- * Share the Settings catalog into the customer's WhatsApp chat.
- * Always attaches the uploaded PDF (Android Intent / iOS PDF→image attach).
- * Never opens a text-only "enquiry" message for catalogue.
- */
-async function shareCatalogPdfFile(params: {
-  phone: string;
-  appKind: WhatsAppAppKind;
-  pdfUri: string;
-  filename: string;
-}): Promise<void> {
-  const { phone, appKind, pdfUri, filename } = params;
-
-  // Force PDF MIME + .pdf name so native never treats this as text.
-  const pdfName = filename.toLowerCase().endsWith('.pdf')
-    ? filename
-    : `${filename}.pdf`;
-  const url = pdfUri.includes('.pdf')
-    ? pdfUri
-    : pdfUri.startsWith('file://')
-      ? pdfUri
-      : `file://${pdfUri}`;
-
-  await shareWhatsAppMedia({
-    title: 'Ganesh Murti Catalog',
-    phone,
-    appKind,
-    url,
-    type: 'application/pdf',
-    filename: pdfName,
-    // Critical: no message — caption/text path drops the file / sends enquiry text.
-    message: undefined,
-    targetPhone: true,
-    forceDialog: false,
-  });
-}
-
-/**
  * Open WhatsApp with the Settings pre-drafted stall / location message only.
+ * Deep link only — never Share / Open In (Message vs Open in WhatsApp).
  */
 export async function sharePredraftedMessageOnWhatsApp(
   recipient: TeleMessagingShareRecipient,
@@ -141,9 +87,8 @@ export async function sharePredraftedMessageOnWhatsApp(
 }
 
 /**
- * Tele-Messaging → Send catalogue:
- * Opens WhatsApp for the customer with the Settings catalogue attached
- * (PDF on Android; WhatsApp image of pages on iOS — no chooser / no spinner).
+ * Tele-Messaging catalogue — opens this contact with a catalogue note.
+ * Deep link only (PDF Share sheets showed Message / Open in WhatsApp).
  */
 export async function shareCatalogOnWhatsApp(
   recipient: TeleMessagingShareRecipient,
@@ -187,47 +132,6 @@ export async function shareCatalogOnWhatsApp(
     return;
   }
 
-  let shareablePdfUri: string;
-  try {
-    shareablePdfUri = await ensureShareableMurtiesPdfUri(resolved.murtiesPdfUri);
-  } catch (error) {
-    console.warn('Could not prepare Settings catalog PDF for WhatsApp', error);
-    Alert.alert(
-      'PDF Attach Failed',
-      'Could not prepare the catalog PDF from Settings. Re-upload it in Settings and try again.'
-    );
-    return;
-  }
-
-  try {
-    await shareCatalogPdfFile({
-      phone,
-      appKind: installedApp,
-      pdfUri: shareablePdfUri,
-      filename,
-    });
-  } catch (error) {
-    if (isUserCancelledShare(error)) return;
-
-    // Retry alternate WhatsApp app (consumer ↔ business) — same as Android.
-    const alternate: WhatsAppAppKind =
-      installedApp === 'consumer' ? 'business' : 'consumer';
-    try {
-      await shareCatalogPdfFile({
-        phone,
-        appKind: alternate,
-        pdfUri: shareablePdfUri,
-        filename,
-      });
-      return;
-    } catch (retryError) {
-      if (isUserCancelledShare(retryError)) return;
-    }
-
-    console.warn('Catalogue WhatsApp share failed', error);
-    Alert.alert(
-      'WhatsApp Failed',
-      'Could not share the Settings catalogue PDF. Please try again.'
-    );
-  }
+  const caption = `🙏 Ganesh Murti Catalog\n\nPlease find our catalogue (${filename}). Reply here if you need more details.`;
+  await openDeviceWhatsAppApp(phone, caption, installedApp);
 }

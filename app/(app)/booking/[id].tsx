@@ -67,7 +67,6 @@ export default function BookingDetailsScreen() {
   const {
     downloadPdf,
     shareBookingDetailsOnWhatsApp,
-    shareInvoicePdfOnWhatsApp,
     isBusy,
     activeAction,
   } = useReceipt();
@@ -82,25 +81,8 @@ export default function BookingDetailsScreen() {
 
   const handleShareWhatsApp = () => {
     if (!booking || isBusy) return;
-    Alert.alert(
-      'Share on WhatsApp',
-      'Choose what to share with the customer.',
-      [
-        {
-          text: 'Share booking details',
-          onPress: () => {
-            void shareBookingDetailsOnWhatsApp(booking);
-          },
-        },
-        {
-          text: 'Share invoice PDF',
-          onPress: () => {
-            void shareInvoicePdfOnWhatsApp(booking);
-          },
-        },
-        { text: 'Cancel', style: 'cancel' },
-      ]
-    );
+    // Deep link only — never Ask / Share sheet (Message vs Open in WhatsApp).
+    void shareBookingDetailsOnWhatsApp(booking);
   };
 
   const handleDelete = () => {

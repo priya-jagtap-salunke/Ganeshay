@@ -11,10 +11,6 @@ import {
 } from '../utils/receiptMarkup';
 import { isWebBrowser, usesNativePdf } from '../utils/receiptPlatform';
 import { captureReceiptHtmlToPng } from '../utils/receiptImageCapture';
-import {
-  selectBusinessDocumentSettings,
-  useSettingsStore,
-} from '@/features/settings/store/settingsStore';
 
 /** Bump when invoice HTML changes so cached PDFs regenerate. */
 const RECEIPT_TEMPLATE_VERSION = 16;
@@ -305,30 +301,9 @@ export async function generateReceiptShareImage(
 
 export async function shareReceiptViaWhatsApp(
   booking: Booking,
-  pdfUri: string,
+  _pdfUri: string,
   options?: { messageVariant?: 'default' | 'newBooking' }
 ): Promise<void> {
-  const isNewBooking = options?.messageVariant === 'newBooking';
-  let receiptImageUri: string | undefined;
-
-  // Android + iOS: default booking shares use receipt image (reliable WhatsApp attach).
-  // New Booking / invoice PDF button uses the dedicated PDF path instead.
-  if (!isNewBooking && (Platform.OS === 'android' || Platform.OS === 'ios')) {
-    try {
-      const settings = selectBusinessDocumentSettings(useSettingsStore.getState());
-      receiptImageUri = await generateReceiptShareImage(booking, settings);
-    } catch (error) {
-      console.warn('Could not render receipt image for WhatsApp', error);
-      Alert.alert(
-        'Receipt Image Failed',
-        'Could not prepare the booking receipt image. Please try Share on WhatsApp again.'
-      );
-      return;
-    }
-  }
-
-  await shareReceiptOnWhatsApp(booking, pdfUri, {
-    ...options,
-    receiptImageUri,
-  });
+  // Message deep link only — never Share / Open In (Message vs Open in WhatsApp).
+  await shareReceiptOnWhatsApp(booking, '', options);
 }

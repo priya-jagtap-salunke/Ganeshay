@@ -27,7 +27,6 @@ import { radius, spacing } from '@/theme/spacing';
 import { TeleMessagingContactRow } from './TeleMessagingContactRow';
 import { TeleMessagingFilterBar } from './TeleMessagingFilterBar';
 import {
-  shareCatalogOnWhatsApp,
   sharePredraftedMessageOnWhatsApp,
 } from '../services/telemessagingWhatsAppService';
 
@@ -107,8 +106,11 @@ export function TeleMessagingPanel() {
     }
   };
 
-  const sendPredraft = async (contact: TelecallingContact) => {
-    // No spinner — open WhatsApp immediately.
+  /**
+   * Send → open this contact in WhatsApp with the predrafted message.
+   * Deep link only (no Share sheet / Message / Open in WhatsApp).
+   */
+  const handleSendWhatsApp = async (contact: TelecallingContact) => {
     try {
       await sharePredraftedMessageOnWhatsApp(
         {
@@ -126,56 +128,6 @@ export function TeleMessagingPanel() {
         );
       }
     }
-  };
-
-  const sendCatalogue = async (contact: TelecallingContact) => {
-    // No spinner — open WhatsApp with catalogue PDF immediately.
-    try {
-      await shareCatalogOnWhatsApp(
-        {
-          mobile: contact.mobile,
-          customerName: contact.name,
-        },
-        settings
-      );
-      await markSent(contact, 'catalog');
-    } catch (error) {
-      if (!getErrorMessage(error).toLowerCase().includes('cancel')) {
-        Alert.alert(
-          'WhatsApp Failed',
-          getErrorMessage(error) || 'Could not share catalogue.'
-        );
-      }
-    }
-  };
-
-  /**
-   * One Send button → choose Send details or Send catalogue.
-   * After choice, WhatsApp opens directly (no Message / Open WhatsApp system ask).
-   */
-  const handleSendWhatsApp = (contact: TelecallingContact) => {
-    Alert.alert('Send WhatsApp', 'Choose what to send', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Send details',
-        onPress: () => {
-          void sendPredraft(contact);
-        },
-      },
-      {
-        text: 'Send catalogue',
-        onPress: () => {
-          if (!settings.murtiesPdfUri) {
-            Alert.alert(
-              'Catalog Missing',
-              'Upload the Ganesh Murti catalog PDF in Settings, then try again.'
-            );
-            return;
-          }
-          void sendCatalogue(contact);
-        },
-      },
-    ]);
   };
 
   if (isLoading && !contacts) {
