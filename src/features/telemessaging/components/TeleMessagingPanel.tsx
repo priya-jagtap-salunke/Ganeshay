@@ -149,13 +149,33 @@ export function TeleMessagingPanel() {
     }
   };
 
-  /** Send opens WhatsApp directly — no chooser / Alert. */
+  /**
+   * One Send button → choose Send details or Send catalogue.
+   * After choice, WhatsApp opens directly (no Message / Open WhatsApp system ask).
+   */
   const handleSendWhatsApp = (contact: TelecallingContact) => {
-    void sendPredraft(contact);
-  };
-
-  const handleSendCatalogue = (contact: TelecallingContact) => {
-    void sendCatalogue(contact);
+    Alert.alert('Send WhatsApp', 'Choose what to send', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Send details',
+        onPress: () => {
+          void sendPredraft(contact);
+        },
+      },
+      {
+        text: 'Send catalogue',
+        onPress: () => {
+          if (!settings.murtiesPdfUri) {
+            Alert.alert(
+              'Catalog Missing',
+              'Upload the Ganesh Murti catalog PDF in Settings, then try again.'
+            );
+            return;
+          }
+          void sendCatalogue(contact);
+        },
+      },
+    ]);
   };
 
   if (isLoading && !contacts) {
@@ -179,7 +199,7 @@ export function TeleMessagingPanel() {
         <Text variant="bodyMedium" style={{ color: colors.textSecondary }}>
           {contactCount === 0
             ? 'Import contacts from Tele-calling first. The same list appears here for WhatsApp messaging.'
-            : `${contactCount} contact${contactCount === 1 ? '' : 's'} · WhatsApp only · auto-moves to Sent after send`}
+            : `${contactCount} contact${contactCount === 1 ? '' : 's'} · Send → details or catalogue · auto-moves to Sent`}
         </Text>
         {contactCount === 0 ? (
           <AppButton
@@ -221,8 +241,6 @@ export function TeleMessagingPanel() {
               contact={item}
               index={index}
               onSendWhatsApp={() => handleSendWhatsApp(item)}
-              onSendCatalogue={() => handleSendCatalogue(item)}
-              showCatalogue={Boolean(settings.murtiesPdfUri)}
             />
           )}
         />

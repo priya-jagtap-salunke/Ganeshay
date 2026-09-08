@@ -141,7 +141,7 @@ index 17fb272..2e33326 100644
      @Override
      protected String getPackage() {
 diff --git a/node_modules/react-native-share/ios/WhatsAppShare.m b/node_modules/react-native-share/ios/WhatsAppShare.m
-index e298cd6..bba9d3c 100644
+index e298cd6..3b8e4c6 100644
 --- a/node_modules/react-native-share/ios/WhatsAppShare.m
 +++ b/node_modules/react-native-share/ios/WhatsAppShare.m
 @@ -2,15 +2,20 @@
@@ -176,7 +176,7 @@ index e298cd6..bba9d3c 100644
      if(![self isAbleToSendMessage: options]){
          return;
      }
-@@ -45,76 +48,308 @@ resolve:(RCTPromiseResolveBlock)resolve {
+@@ -45,76 +48,309 @@ resolve:(RCTPromiseResolveBlock)resolve {
          [self tryToSendVideo: options resolve:resolve reject:reject];
          break;
  
@@ -407,7 +407,9 @@ index e298cd6..bba9d3c 100644
 +    return [self handleError:@"Something went wrong" code:2 rejectFn:reject];
    }
  
-+  [self openCustomerChatIfNeeded:options];
++  // Do NOT open whatsapp://send first — that backgrounds the app and either
++  // drops the attach sheet or shows Message vs WhatsApp. WhatsApp-only UTI
++  // opens WhatsApp directly with the file (no system chooser).
 +  [self shareToWhatsAppOnly:filePath];
 +  resolve(@[@true, @""]);
  }
@@ -419,7 +421,6 @@ index e298cd6..bba9d3c 100644
 +  if (!path) {
 +    return [self handleError:@"Something went wrong" code:2 rejectFn:reject];
 +  }
-+  [self openCustomerChatIfNeeded:options];
  
 -  NSLog(@"Sending whatsapp movie");
 -  [self shareMedia:options[@"url"] documentUTI:@"net.whatsapp.movie"];
@@ -451,7 +452,7 @@ index e298cd6..bba9d3c 100644
 +
 +    dispatch_async(dispatch_get_main_queue(), ^{
 +      if (!filePath) {
-+        // Still open the customer chat so share never fails silently.
++        // PDF render failed — still try to open the customer chat (text path).
 +        [self openCustomerChatIfNeeded:options];
 +        NSString *whatsAppNumber = [RCTConvert NSString:options[@"whatsAppNumber"]];
 +        if (whatsAppNumber.length > 0) {
@@ -462,7 +463,7 @@ index e298cd6..bba9d3c 100644
 +        return;
 +      }
 +
-+      [self openCustomerChatIfNeeded:options];
++      // WhatsApp-only .wai share — opens WhatsApp with media, no Message ask.
 +      [self shareToWhatsAppOnly:filePath];
 +      resolve(@[@true, @""]);
 +    });
@@ -513,7 +514,7 @@ index e298cd6..bba9d3c 100644
    if([self isMediaType:url mediaExtensions: imageExtensions]){
      return MessageTypeImage;
    }
-@@ -138,39 +373,29 @@ resolve:(RCTPromiseResolveBlock)resolve {
+@@ -138,39 +374,29 @@ resolve:(RCTPromiseResolveBlock)resolve {
  
  -(BOOL)isWhatsAppAvailable {
    if([[UIApplication sharedApplication] canOpenURL: [NSURL URLWithString:@"whatsapp://app"]]) {

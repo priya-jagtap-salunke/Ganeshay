@@ -17,8 +17,6 @@ interface TeleMessagingContactRowProps {
   contact: TelecallingContact;
   index?: number;
   onSendWhatsApp: () => void;
-  onSendCatalogue?: () => void;
-  showCatalogue?: boolean;
 }
 
 function formatLastMessaged(value: string | null): string | null {
@@ -47,8 +45,6 @@ export function TeleMessagingContactRow({
   contact,
   index = 0,
   onSendWhatsApp,
-  onSendCatalogue,
-  showCatalogue,
 }: TeleMessagingContactRowProps) {
   const theme = useTheme();
   const status = normalizeTeleMessagingStatus(contact.message_status);
@@ -134,20 +130,6 @@ export function TeleMessagingContactRow({
           >
             Send
           </AppButton>
-          {showCatalogue && onSendCatalogue ? (
-            <AppButton
-              icon="file-pdf-box"
-              variant="tonal"
-              onPress={onSendCatalogue}
-              compact
-              style={styles.actionBtn}
-              contentStyle={styles.actionContent}
-              labelStyle={styles.actionLabel}
-              accessibilityLabel={`Send catalogue PDF to ${contact.name}`}
-            >
-              Catalogue
-            </AppButton>
-          ) : null}
         </View>
       </View>
     </Animated.View>
