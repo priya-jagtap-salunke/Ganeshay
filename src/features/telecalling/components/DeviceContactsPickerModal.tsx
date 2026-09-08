@@ -7,8 +7,10 @@ import {
   ActivityIndicator,
   Modal,
   Alert,
+  Platform,
 } from 'react-native';
 import { Text, Checkbox, Searchbar, IconButton } from 'react-native-paper';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AppButton } from '@/components/ui/AppButton';
 import { EmptyState } from '@/components/ui/EmptyState';
 import {
@@ -31,16 +33,23 @@ export function DeviceContactsPickerModal({
   onDismiss,
   onConfirm,
 }: DeviceContactsPickerModalProps) {
+  const insets = useSafeAreaInsets();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [options, setOptions] = useState<DeviceContactOption[]>([]);
-  const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
+  // Use string[] (not Set) so FlatList extraData / selection UI always updates.
+  const [selectedKeys, setSelectedKeys] = useState<string[]>([]);
   const [query, setQuery] = useState('');
   const [accessLimited, setAccessLimited] = useState(false);
 
+  const selectedKeySet = useMemo(
+    () => new Set(selectedKeys),
+    [selectedKeys]
+  );
+
   const resetState = useCallback(() => {
     setOptions([]);
-    setSelectedKeys(new Set());
+    setSelectedKeys([]);
     setQuery('');
     setError(null);
     setAccessLimited(false);
@@ -61,6 +70,8 @@ export function DeviceContactsPickerModal({
         if (cancelled) return;
         setOptions(result.options);
         setAccessLimited(result.accessLimited);
+        // Auto-select all so Import is immediately tappable.
+        setSelectedKeys(result.options.map((opt) => opt.key));
         if (result.accessLimited && result.options.length === 0) {
           Alert.alert(
             'Limited Contacts access',
@@ -71,6 +82,7 @@ export function DeviceContactsPickerModal({
       .catch((err) => {
         if (cancelled) return;
         setError(getErrorMessage(err));
+        setSelectedKeys([]);
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -91,8 +103,6 @@ export function DeviceContactsPickerModal({
         mobileMatchesQuery(opt.mobile, query)
     );
 
-    // Prefix-first (same spirit as booking 1-char search): names starting
-    // with q, then other name/phone contains matches. A–Z within each group.
     const byName = (a: DeviceContactOption, b: DeviceContactOption) =>
       a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
 
@@ -107,16 +117,17 @@ export function DeviceContactsPickerModal({
     return [...prefix, ...rest];
   }, [options, query]);
 
-  const selectedCount = selectedKeys.size;
+  const selectedCount = selectedKeys.length;
   const allFilteredSelected =
-    filtered.length > 0 && filtered.every((opt) => selectedKeys.has(opt.key));
+    filtered.length > 0 &&
+    filtered.every((opt) => selectedKeySet.has(opt.key));
 
   const toggleKey = (key: string) => {
     setSelectedKeys((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
+      if (prev.includes(key)) {
+        return prev.filter((k) => k !== key);
+      }
+      return [...prev, key];
     });
   };
 
@@ -128,17 +139,30 @@ export function DeviceContactsPickerModal({
       } else {
         for (const opt of filtered) next.add(opt.key);
       }
-      return next;
+      return [...next];
     });
   };
 
   const handleConfirm = () => {
-    // Resolve every selected key so none are dropped if list order changes.
+    if (selectedCount === 0) {
+      Alert.alert(
+        'No contacts selected',
+        'Select at least one contact, or tap Select all, then Import.'
+      );
+      return;
+    }
     const byKey = new Map(options.map((opt) => [opt.key, opt]));
     const selected: DeviceContactOption[] = [];
     for (const key of selectedKeys) {
       const opt = byKey.get(key);
       if (opt) selected.push(opt);
+    }
+    if (selected.length === 0) {
+      Alert.alert(
+        'No contacts selected',
+        'Could not resolve the selected contacts. Close and try again.'
+      );
+      return;
     }
     onConfirm(selected);
   };
@@ -148,8 +172,17 @@ export function DeviceContactsPickerModal({
       visible={visible}
       animationType="slide"
       onRequestClose={loading ? undefined : onDismiss}
+      presentationStyle={Platform.OS === 'ios' ? 'fullScreen' : undefined}
     >
-      <View style={styles.container}>
+      <View
+        style={[
+          styles.container,
+          {
+            paddingTop: Math.max(insets.top, spacing.md),
+            paddingBottom: Math.max(insets.bottom, spacing.sm),
+          },
+        ]}
+      >
         <View style={styles.header}>
           <Text style={styles.title}>Select phone contacts</Text>
           <IconButton
@@ -162,8 +195,8 @@ export function DeviceContactsPickerModal({
 
         <View style={styles.body}>
           <Text style={styles.subtitle}>
-            Choose who to add to tele-calling. Only selected contacts are
-            imported. Duplicate numbers already in your list are skipped.
+            Contacts are selected automatically. Tap Import to add them to
+            tele-calling. Uncheck any you want to skip.
           </Text>
 
           {accessLimited ? (
@@ -222,7 +255,7 @@ export function DeviceContactsPickerModal({
               <FlatList
                 data={filtered}
                 keyExtractor={(item) => item.key}
-                extraData={{ query, selectedKeys, selectedCount }}
+                extraData={selectedKeys}
                 style={styles.list}
                 contentContainerStyle={styles.listContent}
                 keyboardShouldPersistTaps="handled"
@@ -239,7 +272,7 @@ export function DeviceContactsPickerModal({
                   />
                 }
                 renderItem={({ item }) => {
-                  const checked = selectedKeys.has(item.key);
+                  const checked = selectedKeySet.has(item.key);
                   return (
                     <Pressable
                       onPress={() => toggleKey(item.key)}
@@ -275,7 +308,7 @@ export function DeviceContactsPickerModal({
                 </AppButton>
                 <AppButton
                   onPress={handleConfirm}
-                  disabled={selectedCount === 0}
+                  disabled={selectedCount === 0 || options.length === 0}
                   style={styles.actionBtn}
                 >
                   {selectedCount > 0 ? `Import ${selectedCount}` : 'Import'}
@@ -296,7 +329,6 @@ const styles = StyleSheet.create({
   },
   header: {
     backgroundColor: colors.royalRed,
-    paddingTop: spacing.xl,
     paddingHorizontal: spacing.md,
     paddingBottom: spacing.sm,
     flexDirection: 'row',
@@ -397,6 +429,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: spacing.sm,
     marginTop: spacing.sm,
+    zIndex: 2,
   },
   actionBtn: {
     flex: 1,

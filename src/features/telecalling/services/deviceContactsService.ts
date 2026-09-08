@@ -130,8 +130,18 @@ function contactDisplayName(contact: Contacts.Contact): string {
 
 /** Prefer digits (iOS) then formatted number — both normalize to last 10. */
 function phoneToMobile(phone: Contacts.PhoneNumber): string {
-  const raw = (phone.digits || phone.number || '').trim();
-  return normalizeMobile(raw);
+  // Try digits first (raw), then number. Also join both if one is incomplete.
+  const candidates = [phone.digits, phone.number]
+    .map((value) => (value || '').trim())
+    .filter(Boolean);
+  for (const raw of candidates) {
+    const mobile = normalizeMobile(raw);
+    if (isValidIndianMobile(mobile)) {
+      return mobile;
+    }
+  }
+  // Last resort: first candidate normalized (may be invalid — caller checks).
+  return candidates.length ? normalizeMobile(candidates[0]) : '';
 }
 
 function isGenericContactName(name: string, mobile: string): boolean {
@@ -161,17 +171,47 @@ function pickBetterOption(
 }
 
 /**
- * Fetch all device contacts with reliable pagination.
- * Dedupes by contact id so partial/overlapping pages never drop or double rows.
+ * Fetch all device contacts.
+ * Prefer a single unpaged query (expo-contacts default). Fall back to paging
+ * if the native layer returns a partial page.
  */
 async function fetchAllDeviceContacts(
   fields: Contacts.FieldType[]
 ): Promise<Contacts.Contact[]> {
-  const pageSize = 300;
   const byId = new Map<string, Contacts.Contact>();
+
+  const remember = (rows: Contacts.Contact[], offsetLabel: number) => {
+    for (let i = 0; i < rows.length; i += 1) {
+      const contact = rows[i];
+      const id =
+        (contact.id && String(contact.id).trim()) ||
+        `offset-${offsetLabel}-row-${i}`;
+      if (!byId.has(id)) {
+        byId.set(id, contact);
+      }
+    }
+  };
+
+  // 1) Default: all contacts in one call (recommended by expo-contacts docs).
+  try {
+    const all = await Contacts.getContactsAsync({
+      fields,
+      sort: Contacts.SortTypes.FirstName,
+    });
+    if (Array.isArray(all?.data) && all.data.length > 0 && !all.hasNextPage) {
+      return all.data;
+    }
+    if (Array.isArray(all?.data) && all.data.length > 0) {
+      remember(all.data, 0);
+    }
+  } catch {
+    // Fall through to paged fetch.
+  }
+
+  // 2) Paged fallback for older / partial native responses.
+  const pageSize = 200;
   let pageOffset = 0;
   let guard = 0;
-
   while (guard < 250) {
     guard += 1;
     let page: Contacts.ContactResponse;
@@ -183,7 +223,6 @@ async function fetchAllDeviceContacts(
         sort: Contacts.SortTypes.FirstName,
       });
     } catch (error) {
-      // If offset paging fails after some data, return what we have.
       if (byId.size > 0) break;
       throw error;
     }
@@ -192,17 +231,7 @@ async function fetchAllDeviceContacts(
     if (!Array.isArray(rows) || rows.length === 0) {
       break;
     }
-
-    for (let i = 0; i < rows.length; i += 1) {
-      const contact = rows[i];
-      const id =
-        (contact.id && String(contact.id).trim()) ||
-        `offset-${pageOffset}-row-${i}`;
-      if (!byId.has(id)) {
-        byId.set(id, contact);
-      }
-    }
-
+    remember(rows, pageOffset);
     if (!page.hasNextPage) {
       break;
     }
