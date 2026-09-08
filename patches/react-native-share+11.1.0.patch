@@ -141,7 +141,7 @@ index 17fb272..2e33326 100644
      @Override
      protected String getPackage() {
 diff --git a/node_modules/react-native-share/ios/WhatsAppShare.m b/node_modules/react-native-share/ios/WhatsAppShare.m
-index e298cd6..1ac5b9c 100644
+index e298cd6..eda19cf 100644
 --- a/node_modules/react-native-share/ios/WhatsAppShare.m
 +++ b/node_modules/react-native-share/ios/WhatsAppShare.m
 @@ -2,15 +2,20 @@
@@ -151,10 +151,10 @@ index e298cd6..1ac5b9c 100644
 -//  Created by Diseño Uno BBCL on 23-07-16.
 -//  Copyright © 2016 Facebook. All rights reserved.
 +//  Patched for Ganeshay — iOS WhatsApp parity with Android:
-+//  - Open the customer chat directly (whatsapp://send?phone=).
-+//  - Attach files WITHOUT the system "Message" / "WhatsApp" Open In sheet.
-+//  - PDFs are rendered to a WhatsApp image (.wai) so only WhatsApp handles them.
-+//  - Images use net.whatsapp.image (WhatsApp-only; no Messages picker).
++//  - Catalogue / invoice: attach the real file (PDF→image), never a text substitute.
++//  - Use WhatsApp-only UTI (net.whatsapp.image) so Message / Facebook / Instagram
++//    do not appear in the system sheet.
++//  - Text-only sends still use whatsapp://send?phone=&text=.
  //
  
  #import "WhatsAppShare.h"
@@ -176,7 +176,26 @@ index e298cd6..1ac5b9c 100644
      if(![self isAbleToSendMessage: options]){
          return;
      }
-@@ -45,76 +48,342 @@ resolve:(RCTPromiseResolveBlock)resolve {
+@@ -35,6 +38,18 @@ resolve:(RCTPromiseResolveBlock)resolve {
+     }
+     
+     MessageType messageType = [self getMessageType: options[@"url"]];
++    // Prefer MIME from JS so catalogue PDFs are never treated as text.
++    NSString *mime = [RCTConvert NSString:options[@"type"]];
++    if (mime.length > 0) {
++      NSString *lowerMime = mime.lowercaseString;
++      if ([lowerMime containsString:@"pdf"]) {
++        messageType = MessageTypeDocument;
++      } else if ([lowerMime hasPrefix:@"image/"]) {
++        messageType = MessageTypeImage;
++      } else if ([lowerMime hasPrefix:@"video/"]) {
++        messageType = MessageTypeVideo;
++      }
++    }
+     
+     switch(messageType) {
+       case MessageTypeImage:
+@@ -45,76 +60,306 @@ resolve:(RCTPromiseResolveBlock)resolve {
          [self tryToSendVideo: options resolve:resolve reject:reject];
          break;
  
@@ -343,45 +362,12 @@ index e298cd6..1ac5b9c 100644
 +}
 +
 +/**
-+ * Open WhatsApp only — never the system share sheet (Message / Facebook / Instagram).
-+ * Uses whatsapp:// URL scheme so iOS does not ask which app to use.
-+ * Image is placed on the pasteboard so it can be pasted in the opened chat.
-+ * Also presents WhatsApp-exclusive Open In (net.whatsapp.image) which auto-opens
-+ * WhatsApp when it is the only handler — still never a multi-app sheet fallback.
++ * Attach catalogue / invoice media into WhatsApp only.
++ * Never opens an empty whatsapp:// chat (that drops the PDF and looks like a text send).
++ * Uses net.whatsapp.image so Message / Facebook / Instagram are not listed.
 + */
 +-(void)shareToWhatsAppOnly:(NSString *)filePath options:(NSDictionary *)options {
-+  NSString *whatsAppNumber = [RCTConvert NSString:options[@"whatsAppNumber"]];
-+
-+  UIImage *image = [UIImage imageWithContentsOfFile:filePath];
-+  if (!image) {
-+    NSData *data = [NSData dataWithContentsOfFile:filePath];
-+    image = data ? [UIImage imageWithData:data] : nil;
-+  }
-+  if (image) {
-+    [[UIPasteboard generalPasteboard] setImage:image];
-+  }
-+
-+  // 1) Always open WhatsApp (or Business) directly — no Message/FB/IG chooser.
-+  NSString *consumerUrl = whatsAppNumber.length > 0
-+    ? [NSString stringWithFormat:@"whatsapp://send?phone=%@", whatsAppNumber]
-+    : @"whatsapp://send";
-+  NSString *businessUrl = whatsAppNumber.length > 0
-+    ? [NSString stringWithFormat:@"whatsapp-business://send?phone=%@", whatsAppNumber]
-+    : @"whatsapp-business://send";
-+
-+  NSURL *openURL = nil;
-+  if ([[UIApplication sharedApplication] canOpenURL:[NSURL URLWithString:@"whatsapp://send"]]) {
-+    openURL = [NSURL URLWithString:consumerUrl];
-+  } else if ([[UIApplication sharedApplication] canOpenURL:[NSURL URLWithString:@"whatsapp-business://send"]]) {
-+    openURL = [NSURL URLWithString:businessUrl];
-+  }
-+
-+  if (openURL) {
-+    [[UIApplication sharedApplication] openURL:openURL options:@{} completionHandler:nil];
-+    return;
-+  }
-+
-+  // 2) Last resort: WhatsApp-only UTI Open In (should list WhatsApp alone).
++  (void)options;
 +  NSURL *fileURL = [NSURL fileURLWithPath:filePath];
 +  documentInteractionController = [UIDocumentInteractionController interactionControllerWithURL:fileURL];
 +  documentInteractionController.UTI = @"net.whatsapp.image";
@@ -458,20 +444,22 @@ index e298cd6..1ac5b9c 100644
 -  NSLog(@"Sending whatsapp movie");
 -  [self shareMedia:options[@"url"] documentUTI:@"net.whatsapp.movie"];
 -  NSLog(@"Done whatsapp movie");
-+  // Open WhatsApp directly — never Open In / share sheet with Message/FB/IG.
-+  [self openCustomerChatIfNeeded:options];
-+  NSString *whatsAppNumber = [RCTConvert NSString:options[@"whatsAppNumber"]];
-+  if (whatsAppNumber.length == 0) {
-+    NSURL *appURL = [NSURL URLWithString:@"whatsapp://send"];
-+    if (appURL && [[UIApplication sharedApplication] canOpenURL:appURL]) {
-+      [[UIApplication sharedApplication] openURL:appURL options:@{} completionHandler:nil];
-+    }
++  NSURL *fileURL = [NSURL fileURLWithPath:path];
++  documentInteractionController = [UIDocumentInteractionController interactionControllerWithURL:fileURL];
++  documentInteractionController.UTI = @"net.whatsapp.movie";
++  documentInteractionController.delegate = self;
++  UIViewController *root = [[[[UIApplication sharedApplication] delegate] window] rootViewController];
++  while (root.presentedViewController) {
++    root = root.presentedViewController;
 +  }
++  UIView *rootView = root.view;
++  CGRect rect = CGRectMake(CGRectGetMidX(rootView.bounds), CGRectGetMidY(rootView.bounds), 1, 1);
++  [documentInteractionController presentOpenInMenuFromRect:rect inView:rootView animated:NO];
    resolve(@[@true, @""]);
  }
  
 +/**
-+ * PDF → image, then open WhatsApp directly (no Message / Facebook / Instagram sheet).
++ * Catalogue PDF from Settings → image pages → attach into WhatsApp (not text).
 + */
 +-(void)tryToSendDocument:(NSDictionary *)options
 +                 resolve:(RCTPromiseResolveBlock)resolve
@@ -487,13 +475,8 @@ index e298cd6..1ac5b9c 100644
 +
 +    dispatch_async(dispatch_get_main_queue(), ^{
 +      if (!filePath) {
-+        [self openCustomerChatIfNeeded:options];
-+        NSString *whatsAppNumber = [RCTConvert NSString:options[@"whatsAppNumber"]];
-+        if (whatsAppNumber.length > 0) {
-+          resolve(@[@true, @""]);
-+          return;
-+        }
-+        [self handleError:@"Could not prepare PDF for WhatsApp" code:2 rejectFn:reject];
++        // Never fall back to a text-only chat — user must get the catalogue file.
++        [self handleError:@"Could not prepare catalog PDF for WhatsApp" code:2 rejectFn:reject];
 +        return;
 +      }
 +
@@ -547,7 +530,7 @@ index e298cd6..1ac5b9c 100644
    if([self isMediaType:url mediaExtensions: imageExtensions]){
      return MessageTypeImage;
    }
-@@ -138,39 +407,29 @@ resolve:(RCTPromiseResolveBlock)resolve {
+@@ -138,39 +383,29 @@ resolve:(RCTPromiseResolveBlock)resolve {
  
  -(BOOL)isWhatsAppAvailable {
    if([[UIApplication sharedApplication] canOpenURL: [NSURL URLWithString:@"whatsapp://app"]]) {

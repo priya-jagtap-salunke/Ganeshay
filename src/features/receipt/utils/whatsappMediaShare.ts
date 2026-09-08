@@ -209,9 +209,10 @@ export async function shareWhatsAppMedia(
     return;
   }
 
-  // iOS — same customer-targeted file share as Android (patched native module).
-  // Resolve quickly: native presents WhatsApp / Open In and returns; a long wait
-  // made the UI look "stuck loading" even after WhatsApp opened.
+  // iOS — attach file via patched WhatsAppShare (PDF→image / WhatsApp-only UTI).
+  // Catalogue PDF render can take >3s; use a longer timeout so we don't abort
+  // before native finishes preparing the file.
+  const timeoutMs = isPdf ? 20_000 : 3_000;
   try {
     await withTimeout(
       Share.shareSingle({
@@ -224,7 +225,7 @@ export async function shareWhatsAppMedia(
         ...(targetPhone ? { whatsAppNumber: params.phone } : {}),
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
       } as any),
-      3000,
+      timeoutMs,
       'WhatsApp share launched'
     );
   } catch (error) {

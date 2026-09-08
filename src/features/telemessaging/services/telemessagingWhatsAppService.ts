@@ -59,7 +59,8 @@ function resolveCatalogSettings(
 
 /**
  * Share the Settings catalog into the customer's WhatsApp chat.
- * Android: PDF Intent attach. iOS: native PDF→image (WhatsApp-only, no Message ask).
+ * Always attaches the uploaded PDF (Android Intent / iOS PDF→image attach).
+ * Never opens a text-only "enquiry" message for catalogue.
  */
 async function shareCatalogPdfFile(params: {
   phone: string;
@@ -69,15 +70,25 @@ async function shareCatalogPdfFile(params: {
 }): Promise<void> {
   const { phone, appKind, pdfUri, filename } = params;
 
-  // Never use forceDialog — that shows Messages vs WhatsApp.
+  // Force PDF MIME + .pdf name so native never treats this as text.
+  const pdfName = filename.toLowerCase().endsWith('.pdf')
+    ? filename
+    : `${filename}.pdf`;
+  const url = pdfUri.includes('.pdf')
+    ? pdfUri
+    : pdfUri.startsWith('file://')
+      ? pdfUri
+      : `file://${pdfUri}`;
+
   await shareWhatsAppMedia({
     title: 'Ganesh Murti Catalog',
     phone,
     appKind,
-    url: pdfUri,
+    url,
     type: 'application/pdf',
-    filename,
-    // Critical: no message — caption/text path drops the file.
+    filename: pdfName,
+    // Critical: no message — caption/text path drops the file / sends enquiry text.
+    message: undefined,
     targetPhone: true,
     forceDialog: false,
   });
