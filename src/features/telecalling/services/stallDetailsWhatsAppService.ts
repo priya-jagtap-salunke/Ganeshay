@@ -73,12 +73,14 @@ async function shareMediaOnly(params: {
     url: params.url,
     type: params.type,
     filename: params.filename,
-    // Never caption media-only attaches — empty EXTRA_TEXT drops files on Android.
     targetPhone: params.targetPhone,
   });
 }
 
-/** Message + banner (+ optional PDF): open chat, then attach media. */
+/**
+ * Android only: open chat with text, then attach banner (+ optional PDF)
+ * via package-locked Intent (no system chooser).
+ */
 async function shareAndroidMessageThenBanner(params: {
   phone: string;
   message: string;
@@ -86,15 +88,7 @@ async function shareAndroidMessageThenBanner(params: {
   banner: { uri: string; type: string };
   pdfUri?: string;
 }): Promise<void> {
-  // Always open THIS contact with details text first (no Message / Open Message sheet).
   await openDeviceWhatsAppApp(params.phone, params.message, params.appKind);
-
-  // iOS Open In for images shows "Message" / "Open Message" — skip media follow-up
-  // on iOS so Send details never presents that chooser. Android uses package Intent.
-  if (Platform.OS === 'ios') {
-    return;
-  }
-
   await waitForWhatsAppReady();
 
   try {
@@ -136,9 +130,6 @@ async function shareAndroidMessageThenBanner(params: {
   }
 }
 
-/**
- * Message + PDF only (no banner): open chat, delay, attach PDF.
- */
 async function shareAndroidMessageThenPdf(params: {
   phone: string;
   message: string;
@@ -146,12 +137,6 @@ async function shareAndroidMessageThenPdf(params: {
   pdfUri: string;
 }): Promise<void> {
   await openDeviceWhatsAppApp(params.phone, params.message, params.appKind);
-
-  // iOS: details text only — avoid Message / Open Message Open In sheet.
-  if (Platform.OS === 'ios') {
-    return;
-  }
-
   await waitForWhatsAppReady();
 
   try {
@@ -200,11 +185,13 @@ export interface StallDetailsShareRecipient {
 }
 
 /**
- * Tele-calling Send Details:
- * Opens installed WhatsApp / WhatsApp Business directly, prefills the stall
- * message, attaches the settings banner image (primary), then optional PDF.
+ * Tele-calling Send:
+ * Opens WhatsApp / WhatsApp Business for this contact with predrafted text.
  *
- * Android + iOS: message via URL/intent, then banner, then optional PDF.
+ * iOS: deep link only (`whatsapp://`) — never file Share / Open In
+ * (that sheet shows Message + Open in WhatsApp).
+ *
+ * Android: same deep link, then optional banner/PDF via package Intent.
  */
 export async function shareStallDetailsOnWhatsApp(
   recipient: StallDetailsShareRecipient,
@@ -229,9 +216,6 @@ export async function shareStallDetailsOnWhatsApp(
     return;
   }
 
-  const hasBanner = Boolean(settings.telecallingBannerUri);
-  const hasPdf = Boolean(settings.murtiesPdfUri);
-
   if (Platform.OS === 'web') {
     await shareOnWeb(phone, message, settings);
     return;
@@ -242,6 +226,35 @@ export async function shareStallDetailsOnWhatsApp(
     showWhatsAppMissingAlert();
     return;
   }
+
+  // iOS: text deep link only. Never prepare/share banner or PDF here —
+  // UIDocumentInteractionController Open In lists Message + WhatsApp.
+  if (Platform.OS === 'ios') {
+    try {
+      await openDeviceWhatsAppApp(phone, message, installedApp);
+    } catch (error) {
+      if (isWhatsAppMissingError(error)) {
+        const alternate: WhatsAppAppKind =
+          installedApp === 'consumer' ? 'business' : 'consumer';
+        try {
+          await openDeviceWhatsAppApp(phone, message, alternate);
+          return;
+        } catch {
+          showWhatsAppMissingAlert();
+          return;
+        }
+      }
+      console.warn('WhatsApp tele-calling open failed', error);
+      Alert.alert(
+        'WhatsApp Error',
+        'Could not open WhatsApp with the stall details. Please try again.'
+      );
+    }
+    return;
+  }
+
+  const hasBanner = Boolean(settings.telecallingBannerUri);
+  const hasPdf = Boolean(settings.murtiesPdfUri);
 
   let shareableBanner: { uri: string; type: string } | undefined;
   if (hasBanner && settings.telecallingBannerUri) {
@@ -272,7 +285,6 @@ export async function shareStallDetailsOnWhatsApp(
   }
 
   const runShare = async (appKind: WhatsAppAppKind) => {
-    // Same sequence on Android and iOS: message → banner → optional PDF.
     if (!shareableBanner) {
       if (shareablePdfUri) {
         await shareAndroidMessageThenPdf({
@@ -314,37 +326,9 @@ export async function shareStallDetailsOnWhatsApp(
       }
     }
 
-    // Last resort: always get the message into the chat; retry banner if possible.
+    // Last resort on Android: open chat with text only (never a system chooser).
     try {
       await openDeviceWhatsAppApp(phone, message, installedApp);
-      if (!shareableBanner) return;
-
-      await delay(ANDROID_STEP_DELAY_MS);
-      await shareMediaOnly({
-        phone,
-        appKind: installedApp,
-        url: shareableBanner.uri,
-        type: shareableBanner.type,
-        filename: bannerFilename(shareableBanner.type),
-        // Prefer current chat after openDeviceWhatsAppApp on both platforms.
-        targetPhone: true,
-      });
-      if (shareablePdfUri) {
-        await delay(ANDROID_STEP_DELAY_MS);
-        try {
-          await shareMediaOnly({
-            phone,
-            appKind: installedApp,
-            url: shareablePdfUri,
-            type: 'application/pdf',
-            filename: 'Ganesha_Murties_Catalog.pdf',
-            targetPhone: true,
-          });
-        } catch (pdfError) {
-          if (isUserCancelledShare(pdfError)) return;
-          console.warn('Murties PDF follow-up share failed', pdfError);
-        }
-      }
     } catch (fallbackError) {
       if (isUserCancelledShare(fallbackError)) return;
       console.warn('WhatsApp tele-calling fallback failed', fallbackError);

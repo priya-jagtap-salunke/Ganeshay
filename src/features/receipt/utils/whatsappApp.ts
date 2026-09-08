@@ -64,12 +64,27 @@ export function showWhatsAppMissingAlert(): void {
   );
 }
 
+/** Keep deep-link URLs under a safe length so iOS/Android don't reject them. */
+function encodeWhatsAppTextForUrl(message: string, maxEncodedLen = 1800): string {
+  const raw = message ?? '';
+  let encoded = encodeURIComponent(raw);
+  if (encoded.length <= maxEncodedLen) return encoded;
+
+  let truncated = raw;
+  while (truncated.length > 0) {
+    truncated = truncated.slice(0, Math.max(0, truncated.length - 80)).trimEnd();
+    encoded = encodeURIComponent(`${truncated}\n…`);
+    if (encoded.length <= maxEncodedLen) return encoded;
+  }
+  return '';
+}
+
 /**
  * Send details → open THIS contact in WhatsApp with predrafted text.
  *
  * Uses only whatsapp:// / package deep links.
- * Never uses Share.open, UIActivityViewController, or ACTION_SEND without a
- * package — those show "Message" / "Open Message" system options.
+ * Never uses Share.open, UIActivityViewController, or ACTION_SEND —
+ * those show "Message" / "Open in WhatsApp" system options.
  */
 export async function openDeviceWhatsAppApp(
   phone: string,
@@ -77,7 +92,7 @@ export async function openDeviceWhatsAppApp(
   appKind?: WhatsAppAppKind
 ): Promise<void> {
   const digits = whatsAppPhoneDigits(phone);
-  const encodedText = encodeURIComponent(message ?? '');
+  const encodedText = encodeWhatsAppTextForUrl(message ?? '');
   const installed = appKind ?? (await resolveInstalledWhatsAppApp());
 
   if (!installed) {
@@ -93,15 +108,16 @@ export async function openDeviceWhatsAppApp(
     return;
   }
 
-  const consumerUrl = `whatsapp://send?phone=${digits}&text=${encodedText}`;
-  const businessUrl = `whatsapp-business://send?phone=${digits}&text=${encodedText}`;
+  const textQuery = encodedText ? `&text=${encodedText}` : '';
+  const consumerUrl = `whatsapp://send?phone=${digits}${textQuery}`;
+  const businessUrl = `whatsapp-business://send?phone=${digits}${textQuery}`;
 
   // Android: package-locked intent — WhatsApp only, same contact, no Message app.
   if (Platform.OS === 'android') {
     const packageName =
       installed === 'business' ? WHATSAPP_BUSINESS_PACKAGE : WHATSAPP_PACKAGE;
     const intentUrl =
-      `intent://send?phone=${digits}&text=${encodedText}` +
+      `intent://send?phone=${digits}${textQuery}` +
       `#Intent;scheme=whatsapp;package=${packageName};` +
       `action=android.intent.action.VIEW;end`;
 
@@ -120,6 +136,26 @@ export async function openDeviceWhatsAppApp(
       : [consumerUrl, businessUrl];
 
   for (const url of candidates) {
+    try {
+      await Linking.openURL(url);
+      return;
+    } catch {
+      // try next
+    }
+  }
+
+  // Last resort: open the chat without text (still WhatsApp-only, no chooser).
+  const bare =
+    installed === 'business'
+      ? [
+          `whatsapp-business://send?phone=${digits}`,
+          `whatsapp://send?phone=${digits}`,
+        ]
+      : [
+          `whatsapp://send?phone=${digits}`,
+          `whatsapp-business://send?phone=${digits}`,
+        ];
+  for (const url of bare) {
     try {
       await Linking.openURL(url);
       return;
