@@ -273,7 +273,7 @@ index 17fb272..bae1b43 100644
      protected String getPackage() {
          return PACKAGE;
 diff --git a/node_modules/react-native-share/ios/WhatsAppShare.m b/node_modules/react-native-share/ios/WhatsAppShare.m
-index e298cd6..85a797c 100644
+index e298cd6..65b7ef6 100644
 --- a/node_modules/react-native-share/ios/WhatsAppShare.m
 +++ b/node_modules/react-native-share/ios/WhatsAppShare.m
 @@ -2,15 +2,20 @@
@@ -327,7 +327,7 @@ index e298cd6..85a797c 100644
      
      switch(messageType) {
        case MessageTypeImage:
-@@ -45,76 +60,341 @@ resolve:(RCTPromiseResolveBlock)resolve {
+@@ -45,76 +60,319 @@ resolve:(RCTPromiseResolveBlock)resolve {
          [self tryToSendVideo: options resolve:resolve reject:reject];
          break;
  
@@ -494,31 +494,13 @@ index e298cd6..85a797c 100644
 +}
 +
 +/**
-+ * Attach catalogue / invoice media into THIS contact's WhatsApp chat.
-+ * When whatsAppNumber is set, opens that chat via whatsapp:// (no "Send to" picker),
-+ * then presents WhatsApp-only file attach.
++ * Attach catalogue / invoice media into WhatsApp only.
++ * Uses net.whatsapp.image so Message / Open Message are not listed.
++ * Do not open an empty chat URL first — that races with Open In and can
++ * surface the system Message chooser.
 + */
 +-(void)shareToWhatsAppOnly:(NSString *)filePath options:(NSDictionary *)options {
-+  NSString *whatsAppNumber = [RCTConvert NSString:options[@"whatsAppNumber"]];
-+  NSString *digits = [[whatsAppNumber componentsSeparatedByCharactersInSet:
-+    [[NSCharacterSet decimalDigitCharacterSet] invertedSet]] componentsJoinedByString:@""];
-+
-+  // 1) Open THIS contact's chat first — skips WhatsApp's "Send to" contact list.
-+  if (digits.length >= 10) {
-+    NSString *openChat = [NSString stringWithFormat:@"whatsapp://send?phone=%@", digits];
-+    NSURL *chatURL = [NSURL URLWithString:openChat];
-+    if (chatURL && [[UIApplication sharedApplication] canOpenURL:chatURL]) {
-+      [[UIApplication sharedApplication] openURL:chatURL options:@{} completionHandler:nil];
-+    } else {
-+      NSString *biz = [NSString stringWithFormat:@"whatsapp-business://send?phone=%@", digits];
-+      NSURL *bizURL = [NSURL URLWithString:biz];
-+      if (bizURL && [[UIApplication sharedApplication] canOpenURL:bizURL]) {
-+        [[UIApplication sharedApplication] openURL:bizURL options:@{} completionHandler:nil];
-+      }
-+    }
-+  }
-+
-+  // 2) Attach file via WhatsApp-only UTI (no Message / Facebook / Instagram).
++  (void)options;
 +  NSURL *fileURL = [NSURL fileURLWithPath:filePath];
 +  documentInteractionController = [UIDocumentInteractionController interactionControllerWithURL:fileURL];
 +  documentInteractionController.UTI = @"net.whatsapp.image";
@@ -530,11 +512,7 @@ index e298cd6..85a797c 100644
 +  }
 +  UIView *rootView = root.view;
 +  CGRect rect = CGRectMake(CGRectGetMidX(rootView.bounds), CGRectGetMidY(rootView.bounds), 1, 1);
-+
-+  // Slight delay so the contact chat can open before the file handoff.
-+  dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.45 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-+    [documentInteractionController presentOpenInMenuFromRect:rect inView:rootView animated:NO];
-+  });
++  [documentInteractionController presentOpenInMenuFromRect:rect inView:rootView animated:NO];
 +}
 +
  -(void)tryToSendImage:(NSDictionary *)options
@@ -697,7 +675,7 @@ index e298cd6..85a797c 100644
    if([self isMediaType:url mediaExtensions: imageExtensions]){
      return MessageTypeImage;
    }
-@@ -138,39 +418,29 @@ resolve:(RCTPromiseResolveBlock)resolve {
+@@ -138,39 +396,29 @@ resolve:(RCTPromiseResolveBlock)resolve {
  
  -(BOOL)isWhatsAppAvailable {
    if([[UIApplication sharedApplication] canOpenURL: [NSURL URLWithString:@"whatsapp://app"]]) {

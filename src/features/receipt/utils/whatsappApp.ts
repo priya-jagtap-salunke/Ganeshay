@@ -20,8 +20,7 @@ async function canOpenWhatsAppScheme(url: string): Promise<boolean> {
 
 /**
  * Resolve which WhatsApp app to open.
- * Prefer WhatsApp Business when installed (many vendors use it as primary);
- * otherwise WhatsApp. Avoids opening Facebook Messenger or a generic share sheet.
+ * Prefer WhatsApp Business when installed; otherwise WhatsApp.
  */
 export async function resolveInstalledWhatsAppApp(): Promise<WhatsAppAppKind | null> {
   if (Platform.OS === 'android') {
@@ -66,14 +65,11 @@ export function showWhatsAppMissingAlert(): void {
 }
 
 /**
- * Open WhatsApp directly to THIS contact with predrafted text.
+ * Send details → open THIS contact in WhatsApp with predrafted text.
  *
- * Never shows:
- * - Message / Open message system chooser
- * - WhatsApp "Send to" contact picker
- * - Browser “Open in WhatsApp?”
- *
- * Uses native WhatsApp package / whatsapp:// deep link with phone in the URL.
+ * Uses only whatsapp:// / package deep links.
+ * Never uses Share.open, UIActivityViewController, or ACTION_SEND without a
+ * package — those show "Message" / "Open Message" system options.
  */
 export async function openDeviceWhatsAppApp(
   phone: string,
@@ -81,7 +77,7 @@ export async function openDeviceWhatsAppApp(
   appKind?: WhatsAppAppKind
 ): Promise<void> {
   const digits = whatsAppPhoneDigits(phone);
-  const text = message ?? '';
+  const encodedText = encodeURIComponent(message ?? '');
   const installed = appKind ?? (await resolveInstalledWhatsAppApp());
 
   if (!installed) {
@@ -97,29 +93,27 @@ export async function openDeviceWhatsAppApp(
     return;
   }
 
-  // Primary: react-native-share → WhatsApp package only (patched native).
-  // Do NOT use Linking intent:// or Share.open — those show Message vs WhatsApp.
-  try {
-    const Share = (await import('react-native-share')).default;
-    const social = whatsAppSocialForKind(Share, installed);
-    await Share.shareSingle({
-      social,
-      message: text.length > 0 ? text : ' ',
-      whatsAppNumber: digits,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    } as any);
-    return;
-  } catch (error) {
-    console.warn(
-      'WhatsApp shareSingle (details) failed; trying scheme deep link',
-      error
-    );
-  }
-
-  // Fallback: scheme deep link only (still WhatsApp-only — never https://wa.me).
-  const encodedText = encodeURIComponent(text);
   const consumerUrl = `whatsapp://send?phone=${digits}&text=${encodedText}`;
   const businessUrl = `whatsapp-business://send?phone=${digits}&text=${encodedText}`;
+
+  // Android: package-locked intent — WhatsApp only, same contact, no Message app.
+  if (Platform.OS === 'android') {
+    const packageName =
+      installed === 'business' ? WHATSAPP_BUSINESS_PACKAGE : WHATSAPP_PACKAGE;
+    const intentUrl =
+      `intent://send?phone=${digits}&text=${encodedText}` +
+      `#Intent;scheme=whatsapp;package=${packageName};` +
+      `action=android.intent.action.VIEW;end`;
+
+    try {
+      await Linking.openURL(intentUrl);
+      return;
+    } catch {
+      // Fall through to scheme URLs
+    }
+  }
+
+  // iOS + Android fallback: scheme opens WhatsApp chat directly (no share sheet).
   const candidates =
     installed === 'business'
       ? [businessUrl, consumerUrl]

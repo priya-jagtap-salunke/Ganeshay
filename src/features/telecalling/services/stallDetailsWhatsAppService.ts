@@ -86,7 +86,15 @@ async function shareAndroidMessageThenBanner(params: {
   banner: { uri: string; type: string };
   pdfUri?: string;
 }): Promise<void> {
+  // Always open THIS contact with details text first (no Message / Open Message sheet).
   await openDeviceWhatsAppApp(params.phone, params.message, params.appKind);
+
+  // iOS Open In for images shows "Message" / "Open Message" — skip media follow-up
+  // on iOS so Send details never presents that chooser. Android uses package Intent.
+  if (Platform.OS === 'ios') {
+    return;
+  }
+
   await waitForWhatsAppReady();
 
   try {
@@ -96,7 +104,6 @@ async function shareAndroidMessageThenBanner(params: {
       url: params.banner.uri,
       type: params.banner.type,
       filename: bannerFilename(params.banner.type),
-      // Always target this contact — false shows WhatsApp "Send to" picker.
       targetPhone: true,
     });
   } catch (attachError) {
@@ -114,7 +121,6 @@ async function shareAndroidMessageThenBanner(params: {
   if (params.pdfUri) {
     await delay(ANDROID_STEP_DELAY_MS);
     try {
-      // PDFs need jid — without it WhatsApp often drops EXTRA_STREAM silently.
       await shareMediaOnly({
         phone: params.phone,
         appKind: params.appKind,
@@ -125,8 +131,6 @@ async function shareAndroidMessageThenBanner(params: {
       });
     } catch (pdfError) {
       if (isUserCancelledShare(pdfError)) return;
-      // Never use expo-sharing / system share sheet — on iOS it shows
-      // Messages vs WhatsApp. Prefer staying in the already-open chat.
       console.warn('Murties PDF follow-up share failed', pdfError);
     }
   }
@@ -134,7 +138,6 @@ async function shareAndroidMessageThenBanner(params: {
 
 /**
  * Message + PDF only (no banner): open chat, delay, attach PDF.
- * Used on Android and iOS.
  */
 async function shareAndroidMessageThenPdf(params: {
   phone: string;
@@ -143,10 +146,15 @@ async function shareAndroidMessageThenPdf(params: {
   pdfUri: string;
 }): Promise<void> {
   await openDeviceWhatsAppApp(params.phone, params.message, params.appKind);
+
+  // iOS: details text only — avoid Message / Open Message Open In sheet.
+  if (Platform.OS === 'ios') {
+    return;
+  }
+
   await waitForWhatsAppReady();
 
   try {
-    // Prefer jid for documents (false often "succeeds" while dropping the PDF).
     await shareMediaOnly({
       phone: params.phone,
       appKind: params.appKind,
@@ -157,7 +165,6 @@ async function shareAndroidMessageThenPdf(params: {
     });
   } catch (attachError) {
     if (isUserCancelledShare(attachError)) throw attachError;
-    // Do not fall back to the system share sheet (Messages vs WhatsApp).
     throw attachError;
   }
 }
