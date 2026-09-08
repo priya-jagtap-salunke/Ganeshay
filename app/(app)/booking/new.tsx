@@ -17,6 +17,7 @@ export default function NewBookingScreen() {
   const createBooking = useCreateBooking();
   const {
     shareBookingDetailsOnWhatsApp,
+    shareInvoicePdfOnWhatsApp,
     prefetchPdf,
   } = useReceipt();
   const [saving, setSaving] = useState(false);
@@ -66,6 +67,11 @@ export default function NewBookingScreen() {
     await shareBookingDetailsOnWhatsApp(savedBooking);
   };
 
+  const handleShareInvoicePdf = async () => {
+    if (!savedBooking) return;
+    await shareInvoicePdfOnWhatsApp(savedBooking);
+  };
+
   return (
     <ScreenContainer
       title="New Booking"
@@ -87,7 +93,9 @@ export default function NewBookingScreen() {
         title="✅ Booking Saved Successfully!"
         message="Your booking has been saved successfully."
         onShareBookingDetails={handleShareBookingDetails}
+        onShareInvoicePdf={handleShareInvoicePdf}
         bookingDetailsLoading={false}
+        invoicePdfLoading={false}
         onConfirm={handleSuccessConfirm}
       />
     </ScreenContainer>

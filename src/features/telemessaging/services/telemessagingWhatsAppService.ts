@@ -8,9 +8,14 @@ import {
   openDeviceWhatsAppApp,
   resolveInstalledWhatsAppApp,
   showWhatsAppMissingAlert,
+  type WhatsAppAppKind,
 } from '@/features/receipt/utils/whatsappApp';
+import { shareWhatsAppMedia } from '@/features/receipt/utils/whatsappMediaShare';
 import { buildStallDetailsWhatsAppMessage } from '@/features/telecalling/utils/stallDetailsWhatsAppMessage';
-import { downloadMurtiesPdfOnWeb } from '@/features/settings/utils/murtiesPdfStorage';
+import {
+  downloadMurtiesPdfOnWeb,
+  ensureShareableMurtiesPdfUri,
+} from '@/features/settings/utils/murtiesPdfStorage';
 import { useSettingsStore } from '@/features/settings/store/settingsStore';
 
 export interface TeleMessagingShareRecipient {
@@ -19,6 +24,19 @@ export interface TeleMessagingShareRecipient {
 }
 
 const DEFAULT_CATALOG_FILENAME = 'Ganesha_Murties_Catalog.pdf';
+
+function isUserCancelledShare(error: unknown): boolean {
+  const msg = (
+    error instanceof Error ? error.message : String(error)
+  ).toLowerCase();
+  return (
+    msg.includes('user did not share') ||
+    msg.includes('user cancelled') ||
+    msg.includes('user canceled') ||
+    msg.includes('ecancelled') ||
+    msg.includes('ecanceled')
+  );
+}
 
 function catalogFilename(settings: BusinessSettings): string {
   const name = (settings.murtiesPdfName ?? '').trim();
@@ -41,7 +59,6 @@ function resolveCatalogSettings(
 
 /**
  * Open WhatsApp with the Settings pre-drafted stall / location message only.
- * Deep link only — never Share / Open In (Message vs Open in WhatsApp).
  */
 export async function sharePredraftedMessageOnWhatsApp(
   recipient: TeleMessagingShareRecipient,
@@ -87,8 +104,36 @@ export async function sharePredraftedMessageOnWhatsApp(
 }
 
 /**
- * Tele-Messaging catalogue — opens this contact with a catalogue note.
- * Deep link only (PDF Share sheets showed Message / Open in WhatsApp).
+ * Attach the Settings catalogue as a real PDF (.pdf) into the customer's WhatsApp.
+ * Never converts to image or other formats.
+ */
+async function shareCatalogPdfFile(params: {
+  phone: string;
+  appKind: WhatsAppAppKind;
+  pdfUri: string;
+  filename: string;
+}): Promise<void> {
+  const { phone, appKind, pdfUri, filename } = params;
+  const pdfName = filename.toLowerCase().endsWith('.pdf')
+    ? filename
+    : `${filename}.pdf`;
+
+  await shareWhatsAppMedia({
+    title: 'Ganesh Murti Catalog',
+    phone,
+    appKind,
+    url: pdfUri,
+    type: 'application/pdf',
+    filename: pdfName,
+    message: undefined,
+    targetPhone: true,
+    forceDialog: false,
+  });
+}
+
+/**
+ * Tele-Messaging → Send catalogue:
+ * Opens WhatsApp for the customer with the Settings catalogue PDF attached.
  */
 export async function shareCatalogOnWhatsApp(
   recipient: TeleMessagingShareRecipient,
@@ -132,6 +177,46 @@ export async function shareCatalogOnWhatsApp(
     return;
   }
 
-  const caption = `🙏 Ganesh Murti Catalog\n\nPlease find our catalogue (${filename}). Reply here if you need more details.`;
-  await openDeviceWhatsAppApp(phone, caption, installedApp);
+  let shareablePdfUri: string;
+  try {
+    shareablePdfUri = await ensureShareableMurtiesPdfUri(resolved.murtiesPdfUri);
+  } catch (error) {
+    console.warn('Could not prepare Settings catalog PDF for WhatsApp', error);
+    Alert.alert(
+      'PDF Attach Failed',
+      'Could not prepare the catalog PDF from Settings. Re-upload it in Settings and try again.'
+    );
+    return;
+  }
+
+  try {
+    await shareCatalogPdfFile({
+      phone,
+      appKind: installedApp,
+      pdfUri: shareablePdfUri,
+      filename,
+    });
+  } catch (error) {
+    if (isUserCancelledShare(error)) return;
+
+    const alternate: WhatsAppAppKind =
+      installedApp === 'consumer' ? 'business' : 'consumer';
+    try {
+      await shareCatalogPdfFile({
+        phone,
+        appKind: alternate,
+        pdfUri: shareablePdfUri,
+        filename,
+      });
+      return;
+    } catch (retryError) {
+      if (isUserCancelledShare(retryError)) return;
+    }
+
+    console.warn('Catalogue WhatsApp share failed', error);
+    Alert.alert(
+      'WhatsApp Failed',
+      'Could not share the Settings catalogue PDF. Please try again.'
+    );
+  }
 }

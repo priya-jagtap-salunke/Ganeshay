@@ -8,7 +8,10 @@ import {
   invalidateReceiptCache,
   getCachedReceiptUri,
 } from '../services/receiptService';
-import { shareNewBookingDetailsOnWhatsApp } from '../services/whatsappService';
+import {
+  shareNewBookingDetailsOnWhatsApp,
+  shareNewBookingInvoicePdfOnWhatsApp,
+} from '../services/whatsappService';
 import { useBusinessDocumentSettings } from '@/features/settings/store/settingsStore';
 import { Booking } from '@/types/booking';
 import { getErrorMessage } from '@/utils/errors';
@@ -146,9 +149,23 @@ export function useReceipt() {
     }
   };
 
-  /** Same as booking details — message deep link only (no Share sheet). */
+  /** Generate invoice PDF and attach the real .pdf file on WhatsApp. */
   const shareInvoicePdfOnWhatsApp = async (booking: Booking) => {
-    await shareBookingDetailsOnWhatsApp(booking);
+    if (sendInFlight.current) return;
+    sendInFlight.current = true;
+    try {
+      const pdfUri = await getOrCreatePdf(booking, false, { silent: true });
+      await shareNewBookingInvoicePdfOnWhatsApp(booking, pdfUri);
+    } catch (error) {
+      console.warn('Share invoice PDF failed', error);
+      Alert.alert(
+        'Share Invoice PDF',
+        getErrorMessage(error) ||
+          'Could not share the invoice PDF. Please try again.'
+      );
+    } finally {
+      sendInFlight.current = false;
+    }
   };
 
   const generateAndShare = (booking: Booking) =>

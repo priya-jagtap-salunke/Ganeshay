@@ -107,6 +107,7 @@ function withTimeout<T>(
  *
  * Skip re-copy when the file is already a local path with a real extension —
  * catalogue PDFs can be 50–150 MB and copying twice made Send look "stuck".
+ * PDFs are always forced to a `.pdf` path so WhatsApp never sees a wrong extension.
  */
 async function prepareShareableFileUrl(
   url: string,
@@ -127,8 +128,15 @@ async function prepareShareableFileUrl(
     throw new Error('Share file is empty or incomplete.');
   }
 
-  // Already a real local file with extension — share in place (no multi-MB copy).
-  if (/\.(pdf|png|jpe?g|webp|gif)$/i.test(fileUri)) {
+  const isPdf = type === 'application/pdf' || isPdfShare(type, fileUri);
+
+  // Already a real local PDF — share in place (no multi-MB copy).
+  if (isPdf && /\.pdf$/i.test(fileUri)) {
+    return fileUri.startsWith('file://') ? fileUri : `file://${fileUri}`;
+  }
+
+  // Already a real local image — share in place.
+  if (!isPdf && /\.(png|jpe?g|webp|gif)$/i.test(fileUri)) {
     return fileUri.startsWith('file://') ? fileUri : `file://${fileUri}`;
   }
 
@@ -144,11 +152,12 @@ async function prepareShareableFileUrl(
     // may exist
   }
 
+  const ext = isPdf ? 'pdf' : extensionForMime(type);
   const base =
     (filename || 'share')
       .replace(/\.(pdf|png|jpe?g|webp|gif)$/i, '')
       .replace(/[^\w.-]+/g, '_') || 'share';
-  const dest = `${downloadDir}${base}_${Date.now()}.${extensionForMime(type)}`;
+  const dest = `${downloadDir}${base}_${Date.now()}.${ext}`;
   await FileSystem.copyAsync({ from: fileUri, to: dest });
 
   const copied = await FileSystem.getInfoAsync(dest);
@@ -162,11 +171,9 @@ async function prepareShareableFileUrl(
 /**
  * Share a single file to WhatsApp / WhatsApp Business (Android + iOS).
  *
- * Same behavior on both platforms:
- * - Opens the customer's WhatsApp chat when targetPhone is true
- * - Attaches the PDF / image (no text-only substitute)
- * - Android: package Intent with EXTRA_STREAM
- * - iOS: patched WhatsAppShare (customer chat + WhatsApp document/image UTI)
+ * PDF shares always use type application/pdf and a .pdf filename — never images.
+ * Android: package Intent with EXTRA_STREAM
+ * iOS: patched WhatsAppShare (real PDF document UTI)
  */
 export async function shareWhatsAppMedia(
   params: WhatsAppMediaShareParams
@@ -174,14 +181,26 @@ export async function shareWhatsAppMedia(
   const social = whatsAppSocialForKind(Share, params.appKind);
   const targetPhone = params.targetPhone !== false;
   const isPdf = isPdfShare(params.type, params.url);
+  // Force PDF MIME + .pdf name so native never treats this as an image/text.
+  const type = isPdf ? 'application/pdf' : params.type;
   // Never caption PDFs — EXTRA_TEXT / iOS text path drops or replaces the file.
   const message =
     !isPdf && params.message?.trim() ? params.message : undefined;
-  const filename = filenameWithoutExtension(params.filename, params.type);
+  let filename = filenameWithoutExtension(params.filename, type);
+  if (isPdf) {
+    const base =
+      (params.filename || filename || 'document')
+        .replace(/\.pdf$/i, '')
+        .replace(/[^\w.-]+/g, '_') || 'document';
+    // Native iOS path uses filename with .pdf; Android RN Share appends from MIME.
+    filename = base;
+  }
   const url = await prepareShareableFileUrl(
     params.url,
-    params.type,
-    params.filename
+    type,
+    isPdf
+      ? `${(params.filename || filename || 'document').replace(/\.pdf$/i, '')}.pdf`
+      : params.filename
   );
   // Digits only — WhatsApp "Send to" picker appears if jid/phone is malformed.
   const phone = whatsAppPhoneDigits(params.phone);
@@ -194,7 +213,7 @@ export async function shareWhatsAppMedia(
       title: params.title,
       social,
       url,
-      type: params.type,
+      type,
       useInternalStorage: true,
     };
     if (filename) options.filename = filename;
@@ -216,9 +235,7 @@ export async function shareWhatsAppMedia(
     return;
   }
 
-  // iOS — attach file via patched WhatsAppShare (PDF→image / WhatsApp-only UTI).
-  // Catalogue PDF render can take >3s; use a longer timeout so we don't abort
-  // before native finishes preparing the file.
+  // iOS — attach real PDF (com.adobe.pdf) or image via patched WhatsAppShare.
   const timeoutMs = isPdf ? 20_000 : 3_000;
   try {
     await withTimeout(
@@ -226,10 +243,13 @@ export async function shareWhatsAppMedia(
         title: params.title,
         social: Share.Social.WHATSAPP,
         url,
-        type: params.type,
-        ...(filename ? { filename } : {}),
+        type,
+        ...(filename
+          ? { filename: isPdf ? `${filename}.pdf` : filename }
+          : isPdf
+            ? { filename: 'document.pdf' }
+            : {}),
         ...(message ? { message } : {}),
-        // Pass phone so native opens this contact (not WhatsApp "Send to").
         ...(targetPhone && phone.length >= 10
           ? { whatsAppNumber: phone }
           : {}),

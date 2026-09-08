@@ -27,6 +27,7 @@ import { radius, spacing } from '@/theme/spacing';
 import { TeleMessagingContactRow } from './TeleMessagingContactRow';
 import { TeleMessagingFilterBar } from './TeleMessagingFilterBar';
 import {
+  shareCatalogOnWhatsApp,
   sharePredraftedMessageOnWhatsApp,
 } from '../services/telemessagingWhatsAppService';
 
@@ -107,27 +108,67 @@ export function TeleMessagingPanel() {
   };
 
   /**
-   * Send → open this contact in WhatsApp with the predrafted message.
-   * Deep link only (no Share sheet / Message / Open in WhatsApp).
+   * One Send → choose details (message) or catalogue (real PDF attach).
    */
-  const handleSendWhatsApp = async (contact: TelecallingContact) => {
-    try {
-      await sharePredraftedMessageOnWhatsApp(
-        {
-          mobile: contact.mobile,
-          customerName: contact.name,
+  const handleSendWhatsApp = (contact: TelecallingContact) => {
+    Alert.alert('Send WhatsApp', 'Choose what to send', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Send details',
+        onPress: () => {
+          void (async () => {
+            try {
+              await sharePredraftedMessageOnWhatsApp(
+                {
+                  mobile: contact.mobile,
+                  customerName: contact.name,
+                },
+                settings
+              );
+              await markSent(contact, 'predraft');
+            } catch (error) {
+              if (!getErrorMessage(error).toLowerCase().includes('cancel')) {
+                Alert.alert(
+                  'WhatsApp Failed',
+                  getErrorMessage(error) || 'Could not open WhatsApp.'
+                );
+              }
+            }
+          })();
         },
-        settings
-      );
-      await markSent(contact, 'predraft');
-    } catch (error) {
-      if (!getErrorMessage(error).toLowerCase().includes('cancel')) {
-        Alert.alert(
-          'WhatsApp Failed',
-          getErrorMessage(error) || 'Could not open WhatsApp.'
-        );
-      }
-    }
+      },
+      {
+        text: 'Send catalogue',
+        onPress: () => {
+          if (!settings.murtiesPdfUri) {
+            Alert.alert(
+              'Catalog Missing',
+              'Upload the Ganesh Murti catalog PDF in Settings, then try again.'
+            );
+            return;
+          }
+          void (async () => {
+            try {
+              await shareCatalogOnWhatsApp(
+                {
+                  mobile: contact.mobile,
+                  customerName: contact.name,
+                },
+                settings
+              );
+              await markSent(contact, 'catalog');
+            } catch (error) {
+              if (!getErrorMessage(error).toLowerCase().includes('cancel')) {
+                Alert.alert(
+                  'WhatsApp Failed',
+                  getErrorMessage(error) || 'Could not share catalogue PDF.'
+                );
+              }
+            }
+          })();
+        },
+      },
+    ]);
   };
 
   if (isLoading && !contacts) {

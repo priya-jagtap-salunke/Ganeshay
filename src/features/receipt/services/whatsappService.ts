@@ -1,5 +1,7 @@
 import { Platform, Linking, Alert } from 'react-native';
+import * as FileSystem from 'expo-file-system';
 import { Booking } from '@/types/booking';
+import { getErrorMessage } from '@/utils/errors';
 import {
   buildNewBookingWhatsAppMessage,
   buildWhatsAppMessage,
@@ -14,13 +16,15 @@ import {
   openDeviceWhatsAppApp,
   resolveInstalledWhatsAppApp,
   showWhatsAppMissingAlert,
+  type WhatsAppAppKind,
 } from '../utils/whatsappApp';
+import { shareWhatsAppMedia } from '../utils/whatsappMediaShare';
 import { downloadMurtiPhotoOnWeb } from '@/features/bookings/utils/murtiPhotoStorage';
 
 export type ShareReceiptWhatsAppOptions = {
   /** Use the New Booking Marathi template. */
   messageVariant?: 'default' | 'newBooking';
-  /** @deprecated Attachments removed — kept for call-site compatibility. */
+  /** @deprecated Message-only share ignores attachments. */
   receiptImageUri?: string;
 };
 
@@ -31,6 +35,120 @@ function downloadPdfOnWeb(pdfUri: string, bookingNumber: string): void {
   anchor.href = pdfUri;
   anchor.download = `Receipt_${bookingNumber}.pdf`;
   anchor.click();
+}
+
+/**
+ * Ensure a real on-disk PDF with size > 0 and a file:// URI ending in .pdf.
+ */
+async function ensureShareablePdfUri(
+  pdfUri: string,
+  bookingNumber: string
+): Promise<string> {
+  const source =
+    pdfUri.startsWith('file://') || pdfUri.startsWith('content://')
+      ? pdfUri
+      : `file://${pdfUri}`;
+
+  const sourceInfo = await FileSystem.getInfoAsync(source);
+  if (!sourceInfo.exists || sourceInfo.isDirectory) {
+    throw new Error('Invoice PDF was not found after generation.');
+  }
+  if (typeof sourceInfo.size === 'number' && sourceInfo.size < 64) {
+    throw new Error('Invoice PDF is empty. Please try again.');
+  }
+
+  const verifyPdfHeader = async (path: string) => {
+    try {
+      const head = await FileSystem.readAsStringAsync(path, {
+        encoding: FileSystem.EncodingType.Base64,
+        length: 8,
+        position: 0,
+      });
+      if (head && !head.startsWith('JVBERi')) {
+        throw new Error('Generated invoice file is not a valid PDF.');
+      }
+    } catch (verifyError) {
+      if (
+        verifyError instanceof Error &&
+        verifyError.message.includes('not a valid PDF')
+      ) {
+        throw verifyError;
+      }
+    }
+  };
+
+  if (/\.pdf$/i.test(source) || source.startsWith('content://')) {
+    await verifyPdfHeader(source);
+    return source.startsWith('file://') || source.startsWith('content://')
+      ? source
+      : `file://${source}`;
+  }
+
+  const cacheDir = FileSystem.cacheDirectory;
+  if (!cacheDir) {
+    throw new Error('File cache is unavailable on this device.');
+  }
+
+  const downloadDir = `${cacheDir}Download/`;
+  try {
+    await FileSystem.makeDirectoryAsync(downloadDir, { intermediates: true });
+  } catch {
+    // Directory may already exist.
+  }
+
+  const safeNumber = bookingNumber.replace(/[^\w.-]+/g, '_');
+  const destPath = `${downloadDir}Invoice_${safeNumber}.pdf`;
+
+  const existing = await FileSystem.getInfoAsync(destPath);
+  const sameSize =
+    existing.exists &&
+    !existing.isDirectory &&
+    typeof existing.size === 'number' &&
+    typeof sourceInfo.size === 'number' &&
+    existing.size === sourceInfo.size;
+
+  if (!sameSize) {
+    await FileSystem.copyAsync({ from: source, to: destPath });
+  }
+
+  const info = await FileSystem.getInfoAsync(destPath);
+  if (!info.exists || info.isDirectory) {
+    throw new Error('Could not prepare the invoice PDF for WhatsApp.');
+  }
+  if (typeof info.size === 'number' && info.size < 64) {
+    throw new Error(
+      'Could not prepare the invoice PDF for WhatsApp (empty file).'
+    );
+  }
+
+  await verifyPdfHeader(destPath);
+
+  return destPath.startsWith('file://') ? destPath : `file://${destPath}`;
+}
+
+function isUserCancelledShare(error: unknown): boolean {
+  const msg = (
+    error instanceof Error ? error.message : String(error)
+  ).toLowerCase();
+  return (
+    msg.includes('user did not share') ||
+    msg.includes('user cancelled') ||
+    msg.includes('user canceled') ||
+    msg.includes('ecancelled') ||
+    msg.includes('ecanceled')
+  );
+}
+
+function isWhatsAppMissingError(error: unknown): boolean {
+  const msg = (
+    error instanceof Error ? error.message : String(error)
+  ).toLowerCase();
+  return (
+    msg.includes('not installed') ||
+    msg.includes('no activity found') ||
+    msg.includes('activitynotfound') ||
+    msg.includes('no activity')
+  );
 }
 
 async function shareOnWeb(
@@ -58,7 +176,7 @@ async function shareOnWeb(
 
 /**
  * Opens WhatsApp for this booking's customer with the prepared message.
- * Deep link only — never Share / Open In (Message vs "Open in WhatsApp").
+ * Message deep link only (no attachments).
  */
 export async function shareReceiptOnWhatsApp(
   booking: Booking,
@@ -173,13 +291,114 @@ export async function shareNewBookingDetailsOnWhatsApp(
   await openDeviceWhatsAppApp(phone, message, appKind);
 }
 
+async function attachInvoicePdf(params: {
+  phone: string;
+  appKind: WhatsAppAppKind;
+  pdfUri: string;
+  bookingNumber: string;
+}): Promise<void> {
+  const { phone, appKind, pdfUri, bookingNumber } = params;
+  const pdfFilename = `Invoice_${bookingNumber}.pdf`;
+
+  await shareWhatsAppMedia({
+    title: `Invoice ${bookingNumber}`,
+    phone,
+    appKind,
+    url: pdfUri,
+    type: 'application/pdf',
+    filename: pdfFilename,
+    // Never caption — text path can drop the PDF.
+    message: undefined,
+    targetPhone: true,
+  });
+}
+
 /**
- * Legacy invoice entry — same as booking details (message deep link only).
- * Avoids Share / Open In which showed Message vs Open in WhatsApp.
+ * Share the generated invoice as a real PDF (.pdf) into the customer's WhatsApp.
+ * Never converts to image or other formats.
  */
 export async function shareNewBookingInvoicePdfOnWhatsApp(
   booking: Booking,
-  _pdfUri: string
+  pdfUri: string
 ): Promise<void> {
-  await shareNewBookingDetailsOnWhatsApp(booking);
+  const phone = validateBookingWhatsAppTarget(booking);
+  if (!phone) return;
+
+  if (!pdfUri) {
+    Alert.alert(
+      'Invoice PDF Failed',
+      'Invoice PDF is missing. Please try again.'
+    );
+    return;
+  }
+
+  if (Platform.OS === 'web') {
+    downloadPdfOnWeb(pdfUri, booking.booking_number);
+    Alert.alert(
+      'Invoice PDF Downloaded',
+      'Attach the downloaded receipt PDF in WhatsApp.'
+    );
+    const whatsAppUrl = getWhatsAppWebUrl(phone, '');
+    if (typeof window !== 'undefined') {
+      window.open(whatsAppUrl, '_blank', 'noopener,noreferrer');
+      return;
+    }
+    await Linking.openURL(whatsAppUrl);
+    return;
+  }
+
+  const appKind = await resolveInstalledWhatsAppApp();
+  if (!appKind) {
+    showWhatsAppMissingAlert();
+    return;
+  }
+
+  let shareablePdfUri: string;
+  try {
+    shareablePdfUri = await ensureShareablePdfUri(
+      pdfUri,
+      booking.booking_number
+    );
+  } catch (error) {
+    console.warn('Could not prepare invoice PDF for WhatsApp', error);
+    Alert.alert(
+      'Invoice PDF Failed',
+      getErrorMessage(error) ||
+        'Could not prepare the invoice PDF for WhatsApp. Please try again.'
+    );
+    return;
+  }
+
+  try {
+    await attachInvoicePdf({
+      phone,
+      appKind,
+      pdfUri: shareablePdfUri,
+      bookingNumber: booking.booking_number,
+    });
+  } catch (error) {
+    if (isUserCancelledShare(error)) return;
+    if (isWhatsAppMissingError(error)) {
+      const alternate: WhatsAppAppKind =
+        appKind === 'consumer' ? 'business' : 'consumer';
+      try {
+        await attachInvoicePdf({
+          phone,
+          appKind: alternate,
+          pdfUri: shareablePdfUri,
+          bookingNumber: booking.booking_number,
+        });
+        return;
+      } catch {
+        showWhatsAppMissingAlert();
+        return;
+      }
+    }
+    console.warn('Invoice PDF WhatsApp share failed', error);
+    Alert.alert(
+      'Share Invoice PDF',
+      getErrorMessage(error) ||
+        'Could not open WhatsApp with the invoice PDF. Please try again.'
+    );
+  }
 }

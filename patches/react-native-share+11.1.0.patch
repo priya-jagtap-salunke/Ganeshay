@@ -273,25 +273,23 @@ index 17fb272..bae1b43 100644
      protected String getPackage() {
          return PACKAGE;
 diff --git a/node_modules/react-native-share/ios/WhatsAppShare.m b/node_modules/react-native-share/ios/WhatsAppShare.m
-index e298cd6..65b7ef6 100644
+index e298cd6..4461821 100644
 --- a/node_modules/react-native-share/ios/WhatsAppShare.m
 +++ b/node_modules/react-native-share/ios/WhatsAppShare.m
-@@ -2,15 +2,20 @@
+@@ -2,8 +2,10 @@
  //  WhatsAppShare.m
  //  RNShare
  //
 -//  Created by Diseño Uno BBCL on 23-07-16.
 -//  Copyright © 2016 Facebook. All rights reserved.
-+//  Patched for Ganeshay — iOS WhatsApp parity with Android:
-+//  - Catalogue / invoice: attach the real file (PDF→image), never a text substitute.
-+//  - Use WhatsApp-only UTI (net.whatsapp.image) so Message / Facebook / Instagram
-+//    do not appear in the system sheet.
++//  Patched for Ganeshay — iOS WhatsApp:
++//  - Catalogue / invoice: attach the real .pdf file (com.adobe.pdf), never convert to image.
++//  - Images still use WhatsApp-only UTI (net.whatsapp.image).
 +//  - Text-only sends still use whatsapp://send?phone=&text=.
  //
  
  #import "WhatsAppShare.h"
-+#import <CoreGraphics/CoreGraphics.h>
- 
+@@ -11,6 +13,7 @@
  typedef NS_ENUM(NSInteger, MessageType) {
    MessageTypeImage,
    MessageTypeVideo,
@@ -299,7 +297,7 @@ index e298cd6..65b7ef6 100644
    MessageTypeText
  };
  
-@@ -23,8 +28,6 @@ RCT_EXPORT_MODULE();
+@@ -23,8 +26,6 @@ RCT_EXPORT_MODULE();
  reject:(RCTPromiseRejectBlock)reject
  resolve:(RCTPromiseResolveBlock)resolve {
      
@@ -308,11 +306,11 @@ index e298cd6..65b7ef6 100644
      if(![self isAbleToSendMessage: options]){
          return;
      }
-@@ -35,6 +38,18 @@ resolve:(RCTPromiseResolveBlock)resolve {
+@@ -35,6 +36,18 @@ resolve:(RCTPromiseResolveBlock)resolve {
      }
      
      MessageType messageType = [self getMessageType: options[@"url"]];
-+    // Prefer MIME from JS so catalogue PDFs are never treated as text.
++    // Prefer MIME from JS so catalogue/invoice PDFs stay documents (never images/text).
 +    NSString *mime = [RCTConvert NSString:options[@"type"]];
 +    if (mime.length > 0) {
 +      NSString *lowerMime = mime.lowercaseString;
@@ -327,7 +325,7 @@ index e298cd6..65b7ef6 100644
      
      switch(messageType) {
        case MessageTypeImage:
-@@ -45,76 +60,319 @@ resolve:(RCTPromiseResolveBlock)resolve {
+@@ -45,51 +58,179 @@ resolve:(RCTPromiseResolveBlock)resolve {
          [self tryToSendVideo: options resolve:resolve reject:reject];
          break;
  
@@ -341,18 +339,6 @@ index e298cd6..65b7ef6 100644
      
  }
  
-+-(void)openCustomerChatIfNeeded:(NSDictionary *)options {
-+  NSString *whatsAppNumber = [RCTConvert NSString:options[@"whatsAppNumber"]];
-+  if (!whatsAppNumber || whatsAppNumber.length == 0) {
-+    return;
-+  }
-+  NSString *openChat = [NSString stringWithFormat:@"whatsapp://send?phone=%@", whatsAppNumber];
-+  NSURL *chatURL = [NSURL URLWithString:openChat];
-+  if (chatURL && [[UIApplication sharedApplication] canOpenURL:chatURL]) {
-+    [[UIApplication sharedApplication] openURL:chatURL options:@{} completionHandler:nil];
-+  }
-+}
-+
 +-(NSString *)filePathFromOptions:(NSDictionary *)options {
 +  NSString *urlString = [RCTConvert NSString:options[@"url"]];
 +  if (!urlString || urlString.length == 0) {
@@ -369,117 +355,59 @@ index e298cd6..65b7ef6 100644
 +  return urlString;
 +}
 +
-+-(UIImage *)renderPDFPage:(CGPDFPageRef)page scale:(CGFloat)scale {
-+  CGRect media = CGPDFPageGetBoxRect(page, kCGPDFMediaBox);
-+  if (media.size.width < 1 || media.size.height < 1) {
++-(NSString *)pdfSharePathFromOptions:(NSDictionary *)options sourcePath:(NSString *)path {
++  NSFileManager *fm = [NSFileManager defaultManager];
++  if (![fm fileExistsAtPath:path]) {
 +    return nil;
 +  }
-+  CGSize size = CGSizeMake(floor(media.size.width * scale), floor(media.size.height * scale));
-+  UIGraphicsBeginImageContextWithOptions(size, YES, 1.0);
-+  CGContextRef ctx = UIGraphicsGetCurrentContext();
-+  if (!ctx) {
-+    UIGraphicsEndImageContext();
++
++  NSString *documentsPath = [NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES) objectAtIndex:0];
++  NSString *fileName = [RCTConvert NSString:options[@"filename"]];
++  if (!fileName.length) {
++    fileName = [path lastPathComponent];
++  }
++  if (!fileName.length) {
++    fileName = @"document.pdf";
++  }
++  // Strip any wrong extension, then force .pdf so WhatsApp attaches a PDF.
++  NSString *base = [[fileName lastPathComponent] stringByDeletingPathExtension];
++  if (!base.length) {
++    base = @"document";
++  }
++  fileName = [base stringByAppendingPathExtension:@"pdf"];
++
++  NSString *destPath = [documentsPath stringByAppendingPathComponent:fileName];
++  if ([destPath isEqualToString:path] && [[path lowercaseString] hasSuffix:@".pdf"]) {
++    return path;
++  }
++
++  NSError *error = nil;
++  if ([fm fileExistsAtPath:destPath]) {
++    [fm removeItemAtPath:destPath error:nil];
++  }
++  if (![fm copyItemAtPath:path toPath:destPath error:&error]) {
++    // Fall back to original only when it already ends with .pdf.
++    if ([[path lowercaseString] hasSuffix:@".pdf"]) {
++      return path;
++    }
 +    return nil;
 +  }
-+  CGContextSetRGBFillColor(ctx, 1.0, 1.0, 1.0, 1.0);
-+  CGContextFillRect(ctx, CGRectMake(0, 0, size.width, size.height));
-+  CGContextSaveGState(ctx);
-+  CGContextTranslateCTM(ctx, 0, size.height);
-+  CGContextScaleCTM(ctx, scale, -scale);
-+  CGContextDrawPDFPage(ctx, page);
-+  CGContextRestoreGState(ctx);
-+  UIImage *image = UIGraphicsGetImageFromCurrentImageContext();
-+  UIGraphicsEndImageContext();
-+  return image;
++  return destPath;
 +}
 +
-+/**
-+ * Render PDF pages into one tall image for WhatsApp.
-+ * Invoice = 1 page. Catalogue = up to 6 pages (WhatsApp-only UTI, no Message ask).
-+ */
-+-(UIImage *)imageFromPDFAtPath:(NSString *)path {
-+  NSURL *url = [NSURL fileURLWithPath:path];
-+  if (!url) return nil;
++-(void)presentOpenInForFile:(NSString *)filePath uti:(NSString *)uti {
++  NSURL *fileURL = [NSURL fileURLWithPath:filePath];
++  documentInteractionController = [UIDocumentInteractionController interactionControllerWithURL:fileURL];
++  documentInteractionController.UTI = uti;
++  documentInteractionController.delegate = self;
 +
-+  CGPDFDocumentRef pdf = CGPDFDocumentCreateWithURL((__bridge CFURLRef)url);
-+  if (!pdf) return nil;
-+
-+  size_t pageCount = CGPDFDocumentGetNumberOfPages(pdf);
-+  if (pageCount < 1) {
-+    CGPDFDocumentRelease(pdf);
-+    return nil;
++  UIViewController *root = [[[[UIApplication sharedApplication] delegate] window] rootViewController];
++  while (root.presentedViewController) {
++    root = root.presentedViewController;
 +  }
-+
-+  const size_t maxPages = 6;
-+  size_t pagesToRender = pageCount < maxPages ? pageCount : maxPages;
-+
-+  CGPDFPageRef first = CGPDFDocumentGetPage(pdf, 1);
-+  if (!first) {
-+    CGPDFDocumentRelease(pdf);
-+    return nil;
-+  }
-+  CGRect media = CGPDFPageGetBoxRect(first, kCGPDFMediaBox);
-+  CGFloat maxSide = 1600.0;
-+  CGFloat scale = MIN(maxSide / media.size.width, maxSide / media.size.height);
-+  if (scale > 2.0) scale = 2.0;
-+  if (scale < 0.5) scale = 0.5;
-+
-+  NSMutableArray<UIImage *> *pageImages = [NSMutableArray arrayWithCapacity:pagesToRender];
-+  CGFloat totalHeight = 0;
-+  CGFloat maxWidth = 0;
-+  for (size_t i = 1; i <= pagesToRender; i++) {
-+    CGPDFPageRef page = CGPDFDocumentGetPage(pdf, i);
-+    if (!page) continue;
-+    UIImage *img = [self renderPDFPage:page scale:scale];
-+    if (!img) continue;
-+    [pageImages addObject:img];
-+    totalHeight += img.size.height;
-+    if (img.size.width > maxWidth) maxWidth = img.size.width;
-+  }
-+  CGPDFDocumentRelease(pdf);
-+
-+  if (pageImages.count == 0) return nil;
-+  if (pageImages.count == 1) return pageImages.firstObject;
-+
-+  // Cap tall catalogue stitch so memory stays reasonable (~12k px).
-+  if (totalHeight > 12000.0) {
-+    CGFloat shrink = 12000.0 / totalHeight;
-+    maxWidth = floor(maxWidth * shrink);
-+    totalHeight = 12000.0;
-+    NSMutableArray<UIImage *> *scaled = [NSMutableArray arrayWithCapacity:pageImages.count];
-+    for (UIImage *img in pageImages) {
-+      CGSize s = CGSizeMake(floor(img.size.width * shrink), floor(img.size.height * shrink));
-+      UIGraphicsBeginImageContextWithOptions(s, YES, 1.0);
-+      [img drawInRect:CGRectMake(0, 0, s.width, s.height)];
-+      UIImage *out = UIGraphicsGetImageFromCurrentImageContext();
-+      UIGraphicsEndImageContext();
-+      if (out) [scaled addObject:out];
-+    }
-+    pageImages = scaled;
-+    totalHeight = 0;
-+    maxWidth = 0;
-+    for (UIImage *img in pageImages) {
-+      totalHeight += img.size.height;
-+      if (img.size.width > maxWidth) maxWidth = img.size.width;
-+    }
-+  }
-+
-+  UIGraphicsBeginImageContextWithOptions(CGSizeMake(maxWidth, totalHeight), YES, 1.0);
-+  CGContextRef ctx = UIGraphicsGetCurrentContext();
-+  if (!ctx) {
-+    UIGraphicsEndImageContext();
-+    return pageImages.firstObject;
-+  }
-+  CGContextSetRGBFillColor(ctx, 1.0, 1.0, 1.0, 1.0);
-+  CGContextFillRect(ctx, CGRectMake(0, 0, maxWidth, totalHeight));
-+  CGFloat y = 0;
-+  for (UIImage *img in pageImages) {
-+    [img drawAtPoint:CGPointMake(0, y)];
-+    y += img.size.height;
-+  }
-+  UIImage *stitched = UIGraphicsGetImageFromCurrentImageContext();
-+  UIGraphicsEndImageContext();
-+  return stitched ?: pageImages.firstObject;
++  UIView *rootView = root.view;
++  CGRect rect = CGRectMake(CGRectGetMidX(rootView.bounds), CGRectGetMidY(rootView.bounds), 1, 1);
++  [documentInteractionController presentOpenInMenuFromRect:rect inView:rootView animated:NO];
 +}
 +
 +-(NSString *)writeWhatsAppImage:(UIImage *)image {
@@ -494,25 +422,12 @@ index e298cd6..65b7ef6 100644
 +}
 +
 +/**
-+ * Attach catalogue / invoice media into WhatsApp only.
++ * Attach image media into WhatsApp only.
 + * Uses net.whatsapp.image so Message / Open Message are not listed.
-+ * Do not open an empty chat URL first — that races with Open In and can
-+ * surface the system Message chooser.
 + */
 +-(void)shareToWhatsAppOnly:(NSString *)filePath options:(NSDictionary *)options {
 +  (void)options;
-+  NSURL *fileURL = [NSURL fileURLWithPath:filePath];
-+  documentInteractionController = [UIDocumentInteractionController interactionControllerWithURL:fileURL];
-+  documentInteractionController.UTI = @"net.whatsapp.image";
-+  documentInteractionController.delegate = self;
-+
-+  UIViewController *root = [[[[UIApplication sharedApplication] delegate] window] rootViewController];
-+  while (root.presentedViewController) {
-+    root = root.presentedViewController;
-+  }
-+  UIView *rootView = root.view;
-+  CGRect rect = CGRectMake(CGRectGetMidX(rootView.bounds), CGRectGetMidY(rootView.bounds), 1, 1);
-+  [documentInteractionController presentOpenInMenuFromRect:rect inView:rootView animated:NO];
++  [self presentOpenInForFile:filePath uti:@"net.whatsapp.image"];
 +}
 +
  -(void)tryToSendImage:(NSDictionary *)options
@@ -573,26 +488,14 @@ index e298cd6..65b7ef6 100644
 +  if (!path) {
 +    return [self handleError:@"Something went wrong" code:2 rejectFn:reject];
 +  }
- 
--  NSLog(@"Sending whatsapp movie");
--  [self shareMedia:options[@"url"] documentUTI:@"net.whatsapp.movie"];
--  NSLog(@"Done whatsapp movie");
-+  NSURL *fileURL = [NSURL fileURLWithPath:path];
-+  documentInteractionController = [UIDocumentInteractionController interactionControllerWithURL:fileURL];
-+  documentInteractionController.UTI = @"net.whatsapp.movie";
-+  documentInteractionController.delegate = self;
-+  UIViewController *root = [[[[UIApplication sharedApplication] delegate] window] rootViewController];
-+  while (root.presentedViewController) {
-+    root = root.presentedViewController;
-+  }
-+  UIView *rootView = root.view;
-+  CGRect rect = CGRectMake(CGRectGetMidX(rootView.bounds), CGRectGetMidY(rootView.bounds), 1, 1);
-+  [documentInteractionController presentOpenInMenuFromRect:rect inView:rootView animated:NO];
-   resolve(@[@true, @""]);
- }
- 
++
++  [self presentOpenInForFile:path uti:@"net.whatsapp.movie"];
++  resolve(@[@true, @""]);
++}
++
 +/**
-+ * Catalogue PDF from Settings → image pages → attach into WhatsApp (not text).
++ * Invoice / catalogue — attach the real PDF file (.pdf + com.adobe.pdf).
++ * Never convert PDF pages to images.
 + */
 +-(void)tryToSendDocument:(NSDictionary *)options
 +                 resolve:(RCTPromiseResolveBlock)resolve
@@ -602,25 +505,31 @@ index e298cd6..65b7ef6 100644
 +    return [self handleError:@"Something went wrong" code:2 rejectFn:reject];
 +  }
 +
-+  dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
-+    UIImage *pageImage = [self imageFromPDFAtPath:path];
-+    NSString *filePath = pageImage ? [self writeWhatsAppImage:pageImage] : nil;
++  NSString *pdfPath = [self pdfSharePathFromOptions:options sourcePath:path];
++  if (!pdfPath) {
++    return [self handleError:@"Could not prepare PDF for WhatsApp" code:2 rejectFn:reject];
++  }
 +
-+    dispatch_async(dispatch_get_main_queue(), ^{
-+      if (!filePath) {
-+        // Never fall back to a text-only chat — user must get the catalogue file.
-+        [self handleError:@"Could not prepare catalog PDF for WhatsApp" code:2 rejectFn:reject];
-+        return;
-+      }
-+
-+      [self shareToWhatsAppOnly:filePath options:options];
-+      resolve(@[@true, @""]);
-+    });
-+  });
-+}
-+
- -(void)tryToSendText:(NSDictionary *)options
-              resolve:(RCTPromiseResolveBlock)resolve
++  // Optional: open this contact first so WhatsApp is ready for the PDF.
++  NSString *whatsAppNumber = [RCTConvert NSString:options[@"whatsAppNumber"]];
++  NSString *digits = [[whatsAppNumber componentsSeparatedByCharactersInSet:
++    [[NSCharacterSet decimalDigitCharacterSet] invertedSet]] componentsJoinedByString:@""];
++  if (digits.length >= 10) {
++    NSString *openChat = [NSString stringWithFormat:@"whatsapp://send?phone=%@", digits];
++    NSURL *chatURL = [NSURL URLWithString:openChat];
++    if (chatURL && [[UIApplication sharedApplication] canOpenURL:chatURL]) {
++      [[UIApplication sharedApplication] openURL:chatURL options:@{} completionHandler:nil];
++    }
++  }
+ 
+-  NSLog(@"Sending whatsapp movie");
+-  [self shareMedia:options[@"url"] documentUTI:@"net.whatsapp.movie"];
+-  NSLog(@"Done whatsapp movie");
++  [self presentOpenInForFile:pdfPath uti:@"com.adobe.pdf"];
+   resolve(@[@true, @""]);
+ }
+ 
+@@ -98,23 +239,50 @@ resolve:(RCTPromiseResolveBlock)resolve {
               reject:(RCTPromiseRejectBlock)reject {
    
    NSString *text = [RCTConvert NSString:options[@"message"]];
@@ -646,7 +555,7 @@ index e298cd6..65b7ef6 100644
        [[UIApplication sharedApplication] openURL:whatsappURL options:@{} completionHandler:nil];
        resolve(@[@true, @""]);
 +      return;
-   }
++  }
 +  if (digits.length >= 10) {
 +    NSString *biz = [NSString stringWithFormat:@"whatsapp-business://send?phone=%@&text=%@", digits, text];
 +    NSURL *bizURL = [NSURL URLWithString:biz];
@@ -655,7 +564,7 @@ index e298cd6..65b7ef6 100644
 +      resolve(@[@true, @""]);
 +      return;
 +    }
-+  }
+   }
 +  return [self handleError:@"Not Installed" code:1 rejectFn:reject];
  }
  
@@ -675,7 +584,7 @@ index e298cd6..65b7ef6 100644
    if([self isMediaType:url mediaExtensions: imageExtensions]){
      return MessageTypeImage;
    }
-@@ -138,39 +396,29 @@ resolve:(RCTPromiseResolveBlock)resolve {
+@@ -138,39 +306,29 @@ resolve:(RCTPromiseResolveBlock)resolve {
  
  -(BOOL)isWhatsAppAvailable {
    if([[UIApplication sharedApplication] canOpenURL: [NSURL URLWithString:@"whatsapp://app"]]) {

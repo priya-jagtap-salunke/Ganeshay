@@ -122,7 +122,7 @@ export async function removeMurtiesPdf(storedUri: string | null): Promise<void> 
 export async function ensureShareableMurtiesPdfUri(
   storedUri: string
 ): Promise<string> {
-  // Already a local file — share in place. Large catalogues (50–150 MB) must
+  // Already a local .pdf — share in place. Large catalogues (50–150 MB) must
   // not be copied on every Send; that made the button spin for a long time.
   if (!storedUri.startsWith('data:')) {
     const info = await FileSystem.getInfoAsync(storedUri);
@@ -132,7 +132,26 @@ export async function ensureShareableMurtiesPdfUri(
     if (typeof info.size === 'number' && info.size < 64) {
       throw new Error('Could not create a shareable murties PDF file.');
     }
-    return storedUri.startsWith('file://') ? storedUri : `file://${storedUri}`;
+    if (/\.pdf$/i.test(storedUri)) {
+      return storedUri.startsWith('file://')
+        ? storedUri
+        : `file://${storedUri}`;
+    }
+
+    // Force a .pdf path so WhatsApp never sees a wrong extension.
+    const cacheDir = FileSystem.cacheDirectory;
+    if (!cacheDir) {
+      throw new Error('File storage is unavailable on this device.');
+    }
+    const downloadDir = `${cacheDir}Download/`;
+    try {
+      await FileSystem.makeDirectoryAsync(downloadDir, { intermediates: true });
+    } catch {
+      // may exist
+    }
+    const dest = `${downloadDir}murties-catalog-share.pdf`;
+    await FileSystem.copyAsync({ from: storedUri, to: dest });
+    return dest.startsWith('file://') ? dest : `file://${dest}`;
   }
 
   const cacheDir = FileSystem.cacheDirectory;
