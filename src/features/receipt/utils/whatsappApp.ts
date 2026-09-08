@@ -1,5 +1,4 @@
 import { Platform, Linking, Alert } from 'react-native';
-import { getWhatsAppAppUrl } from './whatsappMessage';
 
 const WHATSAPP_PACKAGE = 'com.whatsapp';
 const WHATSAPP_BUSINESS_PACKAGE = 'com.whatsapp.w4b';
@@ -67,8 +66,8 @@ export function showWhatsAppMissingAlert(): void {
 
 /**
  * Open WhatsApp / WhatsApp Business directly to a chat with prefilled text.
- * Pass `appKind` when the caller already resolved the package so message +
- * follow-up image shares target the same app.
+ * Never uses https://wa.me (that shows “Open in WhatsApp?”).
+ * Never shows Message / share-sheet choosers.
  */
 export async function openDeviceWhatsAppApp(
   phone: string,
@@ -98,16 +97,26 @@ export async function openDeviceWhatsAppApp(
     }
   }
 
-  if (installed === 'business') {
+  // iOS / Android fallback: open the app scheme directly (no browser, no ask).
+  const candidates =
+    installed === 'business'
+      ? [
+          `whatsapp-business://send?phone=${phone}&text=${encodedText}`,
+          `whatsapp://send?phone=${phone}&text=${encodedText}`,
+        ]
+      : [
+          `whatsapp://send?phone=${phone}&text=${encodedText}`,
+          `whatsapp-business://send?phone=${phone}&text=${encodedText}`,
+        ];
+
+  for (const url of candidates) {
     try {
-      await Linking.openURL(
-        `whatsapp-business://send?phone=${phone}&text=${encodedText}`
-      );
+      await Linking.openURL(url);
       return;
     } catch {
-      // Fall through to consumer whatsapp://
+      // try next scheme
     }
   }
 
-  await Linking.openURL(getWhatsAppAppUrl(phone, message));
+  showWhatsAppMissingAlert();
 }
