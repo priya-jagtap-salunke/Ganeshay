@@ -22,8 +22,6 @@ async function canOpenWhatsAppScheme(url: string): Promise<boolean> {
  * Resolve which WhatsApp app to open.
  * Prefer WhatsApp Business when installed (many vendors use it as primary);
  * otherwise WhatsApp. Avoids opening Facebook Messenger or a generic share sheet.
- * Android uses package checks; iOS uses LSApplicationQueriesSchemes (whatsapp /
- * whatsapp-business).
  */
 export async function resolveInstalledWhatsAppApp(): Promise<WhatsAppAppKind | null> {
   if (Platform.OS === 'android') {
@@ -52,8 +50,6 @@ export function whatsAppSocialForKind(
   Share: { Social: { WHATSAPP: unknown; WHATSAPPBUSINESS: unknown } },
   appKind: WhatsAppAppKind
 ) {
-  // react-native-share WHATSAPPBUSINESS document share is Android-only.
-  // On iOS always use WHATSAPP so invoice/catalog PDF attach matches Android.
   if (Platform.OS === 'ios') {
     return Share.Social.WHATSAPP;
   }
@@ -70,9 +66,14 @@ export function showWhatsAppMissingAlert(): void {
 }
 
 /**
- * Open WhatsApp / WhatsApp Business directly to THIS contact's chat with text.
- * Never shows WhatsApp's "Send to" contact picker — phone is in the deep link.
- * Never uses https://wa.me (browser “Open in WhatsApp?” prompt).
+ * Open WhatsApp directly to THIS contact with predrafted text.
+ *
+ * Never shows:
+ * - Message / Open message system chooser
+ * - WhatsApp "Send to" contact picker
+ * - Browser “Open in WhatsApp?”
+ *
+ * Uses native WhatsApp package / whatsapp:// deep link with phone in the URL.
  */
 export async function openDeviceWhatsAppApp(
   phone: string,
@@ -80,7 +81,7 @@ export async function openDeviceWhatsAppApp(
   appKind?: WhatsAppAppKind
 ): Promise<void> {
   const digits = whatsAppPhoneDigits(phone);
-  const encodedText = encodeURIComponent(message);
+  const text = message ?? '';
   const installed = appKind ?? (await resolveInstalledWhatsAppApp());
 
   if (!installed) {
@@ -96,26 +97,29 @@ export async function openDeviceWhatsAppApp(
     return;
   }
 
-  // Deep link with phone → opens that chat only (no contact re-select).
-  const consumerUrl = `whatsapp://send?phone=${digits}&text=${encodedText}`;
-  const businessUrl = `whatsapp-business://send?phone=${digits}&text=${encodedText}`;
-
-  if (Platform.OS === 'android') {
-    const packageName =
-      installed === 'business' ? WHATSAPP_BUSINESS_PACKAGE : WHATSAPP_PACKAGE;
-    // Package-scoped intent keeps the same contact; avoid generic ACTION_SEND.
-    const intentUrl =
-      `intent://send?phone=${digits}&text=${encodedText}` +
-      `#Intent;scheme=whatsapp;package=${packageName};end`;
-
-    try {
-      await Linking.openURL(intentUrl);
-      return;
-    } catch {
-      // Fall through to scheme URLs
-    }
+  // Primary: react-native-share → WhatsApp package only (patched native).
+  // Do NOT use Linking intent:// or Share.open — those show Message vs WhatsApp.
+  try {
+    const Share = (await import('react-native-share')).default;
+    const social = whatsAppSocialForKind(Share, installed);
+    await Share.shareSingle({
+      social,
+      message: text.length > 0 ? text : ' ',
+      whatsAppNumber: digits,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any);
+    return;
+  } catch (error) {
+    console.warn(
+      'WhatsApp shareSingle (details) failed; trying scheme deep link',
+      error
+    );
   }
 
+  // Fallback: scheme deep link only (still WhatsApp-only — never https://wa.me).
+  const encodedText = encodeURIComponent(text);
+  const consumerUrl = `whatsapp://send?phone=${digits}&text=${encodedText}`;
+  const businessUrl = `whatsapp-business://send?phone=${digits}&text=${encodedText}`;
   const candidates =
     installed === 'business'
       ? [businessUrl, consumerUrl]
@@ -126,7 +130,7 @@ export async function openDeviceWhatsAppApp(
       await Linking.openURL(url);
       return;
     } catch {
-      // try next scheme
+      // try next
     }
   }
 

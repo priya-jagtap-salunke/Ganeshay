@@ -34,15 +34,16 @@ index 2481000..4a46e48 100644
          }
  
 diff --git a/node_modules/react-native-share/android/src/main/java/cl/json/social/WhatsAppBusinessShare.java b/node_modules/react-native-share/android/src/main/java/cl/json/social/WhatsAppBusinessShare.java
-index 47b377a..8d342aa 100644
+index 47b377a..0ef1bd1 100644
 --- a/node_modules/react-native-share/android/src/main/java/cl/json/social/WhatsAppBusinessShare.java
 +++ b/node_modules/react-native-share/android/src/main/java/cl/json/social/WhatsAppBusinessShare.java
-@@ -1,50 +1,51 @@
+@@ -1,51 +1,96 @@
  package cl.json.social;
  
  import android.content.ActivityNotFoundException;
 -import android.content.ComponentName;
 +import android.content.Intent;
++import android.net.Uri;
  
 +import com.facebook.react.bridge.Arguments;
  import com.facebook.react.bridge.ReactApplicationContext;
@@ -52,10 +53,8 @@ index 47b377a..8d342aa 100644
  /**
   * Created by vijay(vijay@gemsessence.com) on 07-June-2021.
 + *
-+ * Patched:
-+ * - Do not pre-open Conversation before the SEND intent.
-+ * - Never use Intent.createChooser (that shows Messages vs WhatsApp).
-+ * - Start WhatsApp Business package directly.
++ * Patched for Ganeshay — same as WhatsAppShare for WhatsApp Business:
++ * text → deep link to contact; media → SEND + jid; never Message chooser.
   */
  public class WhatsAppBusinessShare extends SingleShareIntent {
  
@@ -70,59 +69,104 @@ index 47b377a..8d342aa 100644
      public WhatsAppBusinessShare(ReactApplicationContext reactContext) {
          super(reactContext);
      }
-     @Override
-     public void open(ReadableMap options) throws ActivityNotFoundException {
-         super.open(options);
--        
+-    @Override
+-    public void open(ReadableMap options) throws ActivityNotFoundException {
+-        super.open(options);
+ 
 -        if (options.hasKey("whatsAppNumber")) {
 -            try {                
 -                // create an empty conversation in case it's not on contacts
 -                this.getIntent().setComponent(new ComponentName(PACKAGE, START_CONVERSATION_CLASS)); 
 -                this.openIntentChooser();
--
++    private static String digitsOnly(String raw) {
++        if (raw == null) return "";
++        return raw.replaceAll("[^0-9]", "");
++    }
+ 
 -                // leave room for the conversation to be created
 -                Thread.sleep(START_ACTIVITY_TIME_GAP_MS);   
--
++    private static boolean hasShareUrl(ReadableMap options) {
++        return options.hasKey("url")
++            && !options.isNull("url")
++            && options.getString("url") != null
++            && options.getString("url").trim().length() > 0;
++    }
+ 
 -            } catch (Exception ex) {
 -                ex.printStackTrace();
-+        this.getIntent().setPackage(PACKAGE);
-+        this.getIntent().setComponent(null);
-+        // Ensure jid uses digits-only so WhatsApp opens THIS chat (no "Send to").
-+        if (options.hasKey("whatsAppNumber") && !options.isNull("whatsAppNumber")) {
-+            String raw = options.getString("whatsAppNumber");
-+            if (raw != null) {
-+                String digits = raw.replaceAll("[^0-9]", "");
-+                if (digits.length() >= 10) {
-+                    this.getIntent().putExtra("jid", digits + "@s.whatsapp.net");
++    @Override
++    public void open(ReadableMap options) throws ActivityNotFoundException {
++        if (!hasShareUrl(options)
++            && options.hasKey("whatsAppNumber")
++            && !options.isNull("whatsAppNumber")) {
++            String digits = digitsOnly(options.getString("whatsAppNumber"));
++            if (digits.length() >= 10) {
++                String text = "";
++                if (options.hasKey("message") && !options.isNull("message")) {
++                    String m = options.getString("message");
++                    if (m != null) text = m;
 +                }
++                // Business app accepts whatsapp:// and whatsapp-business://
++                Uri data = Uri.parse(
++                    "whatsapp://send?phone=" + digits + "&text=" + Uri.encode(text)
++                );
++                Intent view = new Intent(Intent.ACTION_VIEW, data);
++                view.setPackage(PACKAGE);
++                view.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
++                try {
++                    this.reactContext.startActivity(view);
++                } catch (ActivityNotFoundException ex) {
++                    Uri biz = Uri.parse(
++                        "whatsapp-business://send?phone=" + digits + "&text=" + Uri.encode(text)
++                    );
++                    Intent viewBiz = new Intent(Intent.ACTION_VIEW, biz);
++                    viewBiz.setPackage(PACKAGE);
++                    viewBiz.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
++                    this.reactContext.startActivity(viewBiz);
++                }
++                WritableMap reply = Arguments.createMap();
++                reply.putBoolean("success", true);
++                reply.putString("message", PACKAGE);
++                TargetChosenReceiver.callbackResolve(reply);
++                return;
              }
          }
--
+ 
 -        // restore default behavior to share to conversation
--        this.getIntent().setComponent(null); 
++        super.open(options);
++        this.getIntent().setPackage(PACKAGE);
+         this.getIntent().setComponent(null);
 -
 -        //  extra params here
 -        this.openIntentChooser();
++        if (options.hasKey("whatsAppNumber") && !options.isNull("whatsAppNumber")) {
++            String digits = digitsOnly(options.getString("whatsAppNumber"));
++            if (digits.length() >= 10) {
++                this.getIntent().putExtra("jid", digits + "@s.whatsapp.net");
++            }
++        }
 +        this.getIntent().addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
-+        // Direct start — no createChooser / system app picker / contact re-select.
 +        this.reactContext.startActivity(this.getIntent());
 +        WritableMap reply = Arguments.createMap();
 +        reply.putBoolean("success", true);
 +        reply.putString("message", PACKAGE);
 +        TargetChosenReceiver.callbackResolve(reply);
      }
++
      @Override
      protected String getPackage() {
+         return PACKAGE;
 diff --git a/node_modules/react-native-share/android/src/main/java/cl/json/social/WhatsAppShare.java b/node_modules/react-native-share/android/src/main/java/cl/json/social/WhatsAppShare.java
-index 17fb272..f12bfdb 100644
+index 17fb272..bae1b43 100644
 --- a/node_modules/react-native-share/android/src/main/java/cl/json/social/WhatsAppShare.java
 +++ b/node_modules/react-native-share/android/src/main/java/cl/json/social/WhatsAppShare.java
-@@ -1,50 +1,51 @@
+@@ -1,51 +1,89 @@
  package cl.json.social;
  
  import android.content.ActivityNotFoundException;
 -import android.content.ComponentName;
 +import android.content.Intent;
++import android.net.Uri;
  
 +import com.facebook.react.bridge.Arguments;
  import com.facebook.react.bridge.ReactApplicationContext;
@@ -132,10 +176,10 @@ index 17fb272..f12bfdb 100644
  /**
   * Created by disenodosbbcl on 23-07-16.
 + *
-+ * Patched:
-+ * - Do not pre-open Conversation before the SEND intent.
-+ * - Never use Intent.createChooser (that shows Messages vs WhatsApp).
-+ * - Start WhatsApp package directly.
++ * Patched for Ganeshay:
++ * - Text (Send details): ACTION_VIEW whatsapp://send?phone=&text= with package set
++ *   → opens THAT contact directly (no Message / Open message chooser).
++ * - Media: ACTION_SEND with jid + package (no createChooser).
   */
  public class WhatsAppShare extends SingleShareIntent {
  
@@ -150,49 +194,84 @@ index 17fb272..f12bfdb 100644
      public WhatsAppShare(ReactApplicationContext reactContext) {
          super(reactContext);
      }
-     @Override
-     public void open(ReadableMap options) throws ActivityNotFoundException {
-         super.open(options);
--        
+-    @Override
+-    public void open(ReadableMap options) throws ActivityNotFoundException {
+-        super.open(options);
+ 
 -        if (options.hasKey("whatsAppNumber")) {
 -            try {                
 -                // create an empty conversation in case it's not on contacts
 -                this.getIntent().setComponent(new ComponentName(PACKAGE, START_CONVERSATION_CLASS)); 
 -                this.openIntentChooser();
--
++    private static String digitsOnly(String raw) {
++        if (raw == null) return "";
++        return raw.replaceAll("[^0-9]", "");
++    }
+ 
 -                // leave room for the conversation to be created
 -                Thread.sleep(START_ACTIVITY_TIME_GAP_MS);   
--
++    private static boolean hasShareUrl(ReadableMap options) {
++        return options.hasKey("url")
++            && !options.isNull("url")
++            && options.getString("url") != null
++            && options.getString("url").trim().length() > 0;
++    }
+ 
 -            } catch (Exception ex) {
 -                ex.printStackTrace();
-+        this.getIntent().setPackage(PACKAGE);
-+        this.getIntent().setComponent(null);
-+        // Ensure jid uses digits-only so WhatsApp opens THIS chat (no "Send to").
-+        if (options.hasKey("whatsAppNumber") && !options.isNull("whatsAppNumber")) {
-+            String raw = options.getString("whatsAppNumber");
-+            if (raw != null) {
-+                String digits = raw.replaceAll("[^0-9]", "");
-+                if (digits.length() >= 10) {
-+                    this.getIntent().putExtra("jid", digits + "@s.whatsapp.net");
++    @Override
++    public void open(ReadableMap options) throws ActivityNotFoundException {
++        // Send details (text only) — deep link into this contact. Never ACTION_SEND
++        // without package (that shows Message vs WhatsApp).
++        if (!hasShareUrl(options)
++            && options.hasKey("whatsAppNumber")
++            && !options.isNull("whatsAppNumber")) {
++            String digits = digitsOnly(options.getString("whatsAppNumber"));
++            if (digits.length() >= 10) {
++                String text = "";
++                if (options.hasKey("message") && !options.isNull("message")) {
++                    String m = options.getString("message");
++                    if (m != null) text = m;
 +                }
++                Uri data = Uri.parse(
++                    "whatsapp://send?phone=" + digits + "&text=" + Uri.encode(text)
++                );
++                Intent view = new Intent(Intent.ACTION_VIEW, data);
++                view.setPackage(PACKAGE);
++                view.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
++                this.reactContext.startActivity(view);
++                WritableMap reply = Arguments.createMap();
++                reply.putBoolean("success", true);
++                reply.putString("message", PACKAGE);
++                TargetChosenReceiver.callbackResolve(reply);
++                return;
              }
          }
--
+ 
 -        // restore default behavior to share to conversation
--        this.getIntent().setComponent(null); 
++        super.open(options);
++        this.getIntent().setPackage(PACKAGE);
+         this.getIntent().setComponent(null);
 -
 -        //  extra params here
 -        this.openIntentChooser();
++        if (options.hasKey("whatsAppNumber") && !options.isNull("whatsAppNumber")) {
++            String digits = digitsOnly(options.getString("whatsAppNumber"));
++            if (digits.length() >= 10) {
++                this.getIntent().putExtra("jid", digits + "@s.whatsapp.net");
++            }
++        }
 +        this.getIntent().addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
-+        // Direct start — no createChooser / system app picker / contact re-select.
 +        this.reactContext.startActivity(this.getIntent());
 +        WritableMap reply = Arguments.createMap();
 +        reply.putBoolean("success", true);
 +        reply.putString("message", PACKAGE);
 +        TargetChosenReceiver.callbackResolve(reply);
      }
++
      @Override
      protected String getPackage() {
+         return PACKAGE;
 diff --git a/node_modules/react-native-share/ios/WhatsAppShare.m b/node_modules/react-native-share/ios/WhatsAppShare.m
 index e298cd6..85a797c 100644
 --- a/node_modules/react-native-share/ios/WhatsAppShare.m
