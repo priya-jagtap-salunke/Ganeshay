@@ -96,7 +96,8 @@ async function shareAndroidMessageThenBanner(params: {
       url: params.banner.uri,
       type: params.banner.type,
       filename: bannerFilename(params.banner.type),
-      targetPhone: false,
+      // Always target this contact — false shows WhatsApp "Send to" picker.
+      targetPhone: true,
     });
   } catch (attachError) {
     if (isUserCancelledShare(attachError)) throw attachError;
@@ -319,7 +320,7 @@ export async function shareStallDetailsOnWhatsApp(
         type: shareableBanner.type,
         filename: bannerFilename(shareableBanner.type),
         // Prefer current chat after openDeviceWhatsAppApp on both platforms.
-        targetPhone: false,
+        targetPhone: true,
       });
       if (shareablePdfUri) {
         await delay(ANDROID_STEP_DELAY_MS);

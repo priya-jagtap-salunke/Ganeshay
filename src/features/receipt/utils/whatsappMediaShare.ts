@@ -7,6 +7,7 @@ import * as FileSystem from 'expo-file-system';
 import Share from 'react-native-share';
 import {
   whatsAppSocialForKind,
+  whatsAppPhoneDigits,
   type WhatsAppAppKind,
 } from './whatsappApp';
 
@@ -182,6 +183,8 @@ export async function shareWhatsAppMedia(
     params.type,
     params.filename
   );
+  // Digits only — WhatsApp "Send to" picker appears if jid/phone is malformed.
+  const phone = whatsAppPhoneDigits(params.phone);
 
   if (Platform.OS === 'android') {
     const NativeRNShare =
@@ -196,7 +199,11 @@ export async function shareWhatsAppMedia(
     };
     if (filename) options.filename = filename;
     if (message) options.message = message;
-    if (targetPhone) options.whatsAppNumber = params.phone;
+    // Always pass jid when we have a phone so WhatsApp opens THIS chat
+    // (never the "Send to" contact list).
+    if (targetPhone && phone.length >= 10) {
+      options.whatsAppNumber = phone;
+    }
     if (params.forceDialog) {
       options.forceDialog = true;
     }
@@ -222,7 +229,10 @@ export async function shareWhatsAppMedia(
         type: params.type,
         ...(filename ? { filename } : {}),
         ...(message ? { message } : {}),
-        ...(targetPhone ? { whatsAppNumber: params.phone } : {}),
+        // Pass phone so native opens this contact (not WhatsApp "Send to").
+        ...(targetPhone && phone.length >= 10
+          ? { whatsAppNumber: phone }
+          : {}),
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
       } as any),
       timeoutMs,

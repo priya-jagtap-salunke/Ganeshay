@@ -5,6 +5,11 @@ const WHATSAPP_BUSINESS_PACKAGE = 'com.whatsapp.w4b';
 
 export type WhatsAppAppKind = 'consumer' | 'business';
 
+/** Digits-only E.164-style number for WhatsApp deep links / jid (no +, spaces). */
+export function whatsAppPhoneDigits(phone: string): string {
+  return (phone || '').replace(/\D/g, '');
+}
+
 async function canOpenWhatsAppScheme(url: string): Promise<boolean> {
   try {
     return await Linking.canOpenURL(url);
@@ -65,15 +70,16 @@ export function showWhatsAppMissingAlert(): void {
 }
 
 /**
- * Open WhatsApp / WhatsApp Business directly to a chat with prefilled text.
- * Never uses https://wa.me (that shows “Open in WhatsApp?”).
- * Never shows Message / share-sheet choosers.
+ * Open WhatsApp / WhatsApp Business directly to THIS contact's chat with text.
+ * Never shows WhatsApp's "Send to" contact picker — phone is in the deep link.
+ * Never uses https://wa.me (browser “Open in WhatsApp?” prompt).
  */
 export async function openDeviceWhatsAppApp(
   phone: string,
   message: string,
   appKind?: WhatsAppAppKind
 ): Promise<void> {
+  const digits = whatsAppPhoneDigits(phone);
   const encodedText = encodeURIComponent(message);
   const installed = appKind ?? (await resolveInstalledWhatsAppApp());
 
@@ -82,11 +88,24 @@ export async function openDeviceWhatsAppApp(
     return;
   }
 
+  if (!digits || digits.length < 10) {
+    Alert.alert(
+      'Invalid Mobile',
+      'Customer mobile number is missing or invalid.'
+    );
+    return;
+  }
+
+  // Deep link with phone → opens that chat only (no contact re-select).
+  const consumerUrl = `whatsapp://send?phone=${digits}&text=${encodedText}`;
+  const businessUrl = `whatsapp-business://send?phone=${digits}&text=${encodedText}`;
+
   if (Platform.OS === 'android') {
     const packageName =
       installed === 'business' ? WHATSAPP_BUSINESS_PACKAGE : WHATSAPP_PACKAGE;
+    // Package-scoped intent keeps the same contact; avoid generic ACTION_SEND.
     const intentUrl =
-      `intent://send?phone=${phone}&text=${encodedText}` +
+      `intent://send?phone=${digits}&text=${encodedText}` +
       `#Intent;scheme=whatsapp;package=${packageName};end`;
 
     try {
@@ -97,17 +116,10 @@ export async function openDeviceWhatsAppApp(
     }
   }
 
-  // iOS / Android fallback: open the app scheme directly (no browser, no ask).
   const candidates =
     installed === 'business'
-      ? [
-          `whatsapp-business://send?phone=${phone}&text=${encodedText}`,
-          `whatsapp://send?phone=${phone}&text=${encodedText}`,
-        ]
-      : [
-          `whatsapp://send?phone=${phone}&text=${encodedText}`,
-          `whatsapp-business://send?phone=${phone}&text=${encodedText}`,
-        ];
+      ? [businessUrl, consumerUrl]
+      : [consumerUrl, businessUrl];
 
   for (const url of candidates) {
     try {
