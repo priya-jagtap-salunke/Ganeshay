@@ -133,7 +133,13 @@ export function DeviceContactsPickerModal({
   };
 
   const handleConfirm = () => {
-    const selected = options.filter((opt) => selectedKeys.has(opt.key));
+    // Resolve every selected key so none are dropped if list order changes.
+    const byKey = new Map(options.map((opt) => [opt.key, opt]));
+    const selected: DeviceContactOption[] = [];
+    for (const key of selectedKeys) {
+      const opt = byKey.get(key);
+      if (opt) selected.push(opt);
+    }
     onConfirm(selected);
   };
 

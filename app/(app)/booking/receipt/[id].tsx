@@ -1,11 +1,14 @@
 import { useEffect, useState } from 'react';
-import { StyleSheet, View, Alert } from 'react-native';
+import { StyleSheet, View, Alert, Platform } from 'react-native';
 import { useLocalSearchParams } from 'expo-router';
 import { AppHeader } from '@/components/layout/AppHeader';
 import { LoadingOverlay } from '@/components/ui/LoadingOverlay';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { ReceiptViewer } from '@/features/receipt/components/ReceiptViewer';
-import { buildReceiptViewHtml } from '@/features/receipt/services/receiptService';
+import {
+  buildReceiptViewHtml,
+  generateReceiptPdf,
+} from '@/features/receipt/services/receiptService';
 import { useBooking } from '@/features/bookings/hooks/useBookings';
 import { useBusinessDocumentSettings } from '@/features/settings/store/settingsStore';
 import { getErrorMessage } from '@/utils/errors';
@@ -16,6 +19,7 @@ export default function BookingReceiptScreen() {
   const { data: booking, isLoading: bookingLoading } = useBooking(id ?? '');
   const settings = useBusinessDocumentSettings();
   const [html, setHtml] = useState<string | null>(null);
+  const [pdfUri, setPdfUri] = useState<string | null>(null);
   const [loadingHtml, setLoadingHtml] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -25,13 +29,27 @@ export default function BookingReceiptScreen() {
     async function load() {
       if (!booking) {
         setHtml(null);
+        setPdfUri(null);
         return;
       }
       setLoadingHtml(true);
       setError(null);
       try {
+        // iOS: show the same Invoice PDF file so layout matches print exactly.
+        if (Platform.OS === 'ios') {
+          const uri = await generateReceiptPdf(booking, settings);
+          if (!cancelled) {
+            setPdfUri(uri);
+            setHtml(null);
+          }
+          return;
+        }
+
         const markup = await buildReceiptViewHtml(booking, settings);
-        if (!cancelled) setHtml(markup);
+        if (!cancelled) {
+          setHtml(markup);
+          setPdfUri(null);
+        }
       } catch (err) {
         if (!cancelled) {
           const message = getErrorMessage(err);
@@ -50,18 +68,19 @@ export default function BookingReceiptScreen() {
   }, [booking, settings]);
 
   const busy = bookingLoading || loadingHtml;
+  const hasContent = Boolean(html || pdfUri);
 
   return (
     <View style={styles.root}>
       <AppHeader title="Receipt" showBack />
-      <LoadingOverlay visible={busy && !html} />
+      <LoadingOverlay visible={busy && !hasContent} />
 
       {!busy && !booking ? (
         <EmptyState icon="file-document-outline" message="Booking not found." />
-      ) : error && !html ? (
+      ) : error && !hasContent ? (
         <EmptyState icon="alert-circle-outline" message={error} />
-      ) : html ? (
-        <ReceiptViewer html={html} />
+      ) : hasContent ? (
+        <ReceiptViewer html={html} pdfUri={pdfUri} />
       ) : null}
     </View>
   );

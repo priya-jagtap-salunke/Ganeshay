@@ -14,6 +14,7 @@ const CONTACT_READ_FIELDS: Contacts.FieldType[] = [
   Contacts.Fields.FirstName,
   Contacts.Fields.MiddleName,
   Contacts.Fields.LastName,
+  Contacts.Fields.Nickname,
   Contacts.Fields.Company,
 ];
 
@@ -118,60 +119,97 @@ function contactDisplayName(contact: Contacts.Contact): string {
     .filter(Boolean);
   if (parts.length) return parts.join(' ');
 
+  const nickname = contact.nickname?.trim();
+  if (nickname) return nickname;
+
   const company = contact.company?.trim();
   if (company) return company;
 
   return '';
 }
 
+/** Prefer digits (iOS) then formatted number — both normalize to last 10. */
+function phoneToMobile(phone: Contacts.PhoneNumber): string {
+  const raw = (phone.digits || phone.number || '').trim();
+  return normalizeMobile(raw);
+}
+
+function isGenericContactName(name: string, mobile: string): boolean {
+  const trimmed = name.trim();
+  if (!trimmed) return true;
+  if (trimmed === mobile) return true;
+  if (trimmed === `Contact ${mobile}`) return true;
+  return false;
+}
+
+/** When two phonebook entries share a mobile, keep the better display name. */
+function pickBetterOption(
+  existing: DeviceContactOption,
+  candidate: DeviceContactOption
+): DeviceContactOption {
+  const existingGeneric = isGenericContactName(existing.name, existing.mobile);
+  const candidateGeneric = isGenericContactName(
+    candidate.name,
+    candidate.mobile
+  );
+  if (existingGeneric && !candidateGeneric) return candidate;
+  if (!existingGeneric && candidateGeneric) return existing;
+  if (candidate.name.trim().length > existing.name.trim().length) {
+    return candidate;
+  }
+  return existing;
+}
+
 /**
- * Fetch all device contacts (paginated). pageSize 0 = all on both platforms.
- * Defensive pagination covers older native builds that still page.
+ * Fetch all device contacts with reliable pagination.
+ * Dedupes by contact id so partial/overlapping pages never drop or double rows.
  */
 async function fetchAllDeviceContacts(
   fields: Contacts.FieldType[]
 ): Promise<Contacts.Contact[]> {
-  const pageSize = 500;
+  const pageSize = 300;
+  const byId = new Map<string, Contacts.Contact>();
   let pageOffset = 0;
-  const all: Contacts.Contact[] = [];
+  let guard = 0;
 
-  // First try “all contacts” in one call (supported by expo-contacts).
-  const first = await Contacts.getContactsAsync({
-    fields,
-    pageSize: 0,
-    sort: Contacts.SortTypes.FirstName,
-  });
-
-  if (first && Array.isArray(first.data)) {
-    if (!first.hasNextPage) {
-      return first.data;
+  while (guard < 250) {
+    guard += 1;
+    let page: Contacts.ContactResponse;
+    try {
+      page = await Contacts.getContactsAsync({
+        fields,
+        pageSize,
+        pageOffset,
+        sort: Contacts.SortTypes.FirstName,
+      });
+    } catch (error) {
+      // If offset paging fails after some data, return what we have.
+      if (byId.size > 0) break;
+      throw error;
     }
-    all.push(...first.data);
-    pageOffset = first.data.length;
-  }
 
-  // Paginate remainder if the native layer still pages.
-  while (true) {
-    const page = await Contacts.getContactsAsync({
-      fields,
-      pageSize,
-      pageOffset,
-      sort: Contacts.SortTypes.FirstName,
-    });
-
-    if (!page || !Array.isArray(page.data)) {
+    const rows = page?.data;
+    if (!Array.isArray(rows) || rows.length === 0) {
       break;
     }
 
-    all.push(...page.data);
+    for (let i = 0; i < rows.length; i += 1) {
+      const contact = rows[i];
+      const id =
+        (contact.id && String(contact.id).trim()) ||
+        `offset-${pageOffset}-row-${i}`;
+      if (!byId.has(id)) {
+        byId.set(id, contact);
+      }
+    }
 
-    if (!page.hasNextPage || page.data.length === 0) {
+    if (!page.hasNextPage) {
       break;
     }
-    pageOffset += page.data.length;
+    pageOffset += rows.length;
   }
 
-  return all;
+  return [...byId.values()];
 }
 
 /**
@@ -183,7 +221,7 @@ export async function getExistingDeviceMobileSet(): Promise<Set<string>> {
   const existing = new Set<string>();
   for (const contact of data) {
     for (const phone of contact.phoneNumbers ?? []) {
-      const digits = normalizeMobile(phone.number ?? '');
+      const digits = phoneToMobile(phone);
       if (digits.length === 10) {
         existing.add(digits);
       }
@@ -251,28 +289,38 @@ export async function loadDeviceContactOptions(): Promise<LoadDeviceContactOptio
 
   for (const contact of data) {
     const name = contactDisplayName(contact);
-    const phones = contact.phoneNumbers ?? [];
+    const phones = [...(contact.phoneNumbers ?? [])].sort((a, b) => {
+      // Prefer primary numbers so the right label wins when duplicates exist.
+      if (a.isPrimary && !b.isPrimary) return -1;
+      if (!a.isPrimary && b.isPrimary) return 1;
+      return 0;
+    });
 
     for (const phone of phones) {
-      const mobile = normalizeMobile(phone.number ?? '');
+      const raw = (phone.digits || phone.number || '').trim();
+      if (!raw) continue;
+
+      const mobile = phoneToMobile(phone);
       if (!isValidIndianMobile(mobile)) {
-        if ((phone.number ?? '').trim()) {
-          skippedInvalid += 1;
-        }
+        skippedInvalid += 1;
         continue;
       }
 
-      if (byMobile.has(mobile)) {
-        skippedDuplicateOnDevice += 1;
-        continue;
-      }
-
-      byMobile.set(mobile, {
+      const candidate: DeviceContactOption = {
         key: mobile,
         name: name || `Contact ${mobile}`,
         mobile,
         notes: null,
-      });
+      };
+
+      const existing = byMobile.get(mobile);
+      if (existing) {
+        skippedDuplicateOnDevice += 1;
+        byMobile.set(mobile, pickBetterOption(existing, candidate));
+        continue;
+      }
+
+      byMobile.set(mobile, candidate);
     }
   }
 
@@ -291,12 +339,38 @@ export async function loadDeviceContactOptions(): Promise<LoadDeviceContactOptio
 export function deviceOptionsToImportInputs(
   options: DeviceContactOption[]
 ): CreateTelecallingContactInput[] {
-  return options.map((opt) => ({
-    name: opt.name,
-    mobile: opt.mobile,
-    notes: opt.notes,
-    synced_to_device: true,
-  }));
+  const byMobile = new Map<string, CreateTelecallingContactInput>();
+
+  for (const opt of options) {
+    const mobile = normalizeMobile(opt.mobile);
+    if (!isValidIndianMobile(mobile)) continue;
+
+    const name = (opt.name || '').trim() || `Contact ${mobile}`;
+    const next: CreateTelecallingContactInput = {
+      name,
+      mobile,
+      notes: opt.notes,
+      synced_to_device: true,
+    };
+
+    const existing = byMobile.get(mobile);
+    if (!existing) {
+      byMobile.set(mobile, next);
+      continue;
+    }
+
+    // Keep the better name if the same mobile was selected twice.
+    if (
+      isGenericContactName(existing.name, mobile) &&
+      !isGenericContactName(name, mobile)
+    ) {
+      byMobile.set(mobile, next);
+    } else if (name.length > existing.name.length) {
+      byMobile.set(mobile, next);
+    }
+  }
+
+  return [...byMobile.values()];
 }
 
 export interface SyncContactInput {

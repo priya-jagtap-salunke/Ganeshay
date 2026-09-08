@@ -225,6 +225,7 @@ export interface ImportContactsResult {
 /**
  * Insert many contacts; skips mobiles already stored for this vendor and
  * dedupes within the batch by normalized 10-digit mobile.
+ * Lookups/inserts are chunked so large phonebook imports do not drop rows.
  */
 export async function importTelecallingContacts(
   inputs: CreateTelecallingContactInput[]
@@ -262,18 +263,23 @@ export async function importTelecallingContacts(
   const uniqueRows = [...byMobile.values()];
 
   const mobiles = uniqueRows.map((r) => r.mobile);
-  const { data: existingRows, error: existingError } = await supabase
-    .from('telecalling_contacts')
-    .select('mobile')
-    .in('mobile', mobiles);
+  const existingSet = new Set<string>();
+  const LOOKUP_CHUNK = 200;
+  for (let i = 0; i < mobiles.length; i += LOOKUP_CHUNK) {
+    const slice = mobiles.slice(i, i + LOOKUP_CHUNK);
+    const { data: existingRows, error: existingError } = await supabase
+      .from('telecalling_contacts')
+      .select('mobile')
+      .in('mobile', slice);
 
-  if (existingError) throw mapTelecallingError(existingError);
+    if (existingError) throw mapTelecallingError(existingError);
 
-  const existingSet = new Set(
-    (existingRows ?? []).map((row: { mobile: string }) =>
-      normalizeMobile(row.mobile)
-    )
-  );
+    for (const row of existingRows ?? []) {
+      const mobile = normalizeMobile((row as { mobile: string }).mobile);
+      if (mobile) existingSet.add(mobile);
+    }
+  }
+
   const toInsert = uniqueRows.filter((row) => !existingSet.has(row.mobile));
   const skippedAlreadyInDb = uniqueRows.length - toInsert.length;
   const skippedExisting = skippedAlreadyInDb + skippedDuplicateInBatch;
@@ -282,43 +288,50 @@ export async function importTelecallingContacts(
     return { inserted: [], skippedExisting };
   }
 
-  const { data, error } = await supabase
-    .from('telecalling_contacts')
-    .insert(toInsert)
-    .select(CONTACT_SELECT);
+  const inserted: TelecallingContact[] = [];
+  const INSERT_CHUNK = 100;
 
-  if (error) {
-    const lower = getErrorMessage(error).toLowerCase();
-    if (
-      lower.includes('unique') ||
-      lower.includes('duplicate') ||
-      lower.includes('telecalling_contacts_vendor_mobile')
-    ) {
-      // Race or partial conflict — insert one-by-one skipping dupes.
-      const inserted: TelecallingContact[] = [];
-      let racedSkips = 0;
-      for (const row of toInsert) {
-        const { data: one, error: oneError } = await supabase
-          .from('telecalling_contacts')
-          .insert(row)
-          .select(CONTACT_SELECT)
-          .maybeSingle();
-        if (oneError || !one) {
-          racedSkips += 1;
-          continue;
+  for (let i = 0; i < toInsert.length; i += INSERT_CHUNK) {
+    const chunk = toInsert.slice(i, i + INSERT_CHUNK);
+    const { data, error } = await supabase
+      .from('telecalling_contacts')
+      .insert(chunk)
+      .select(CONTACT_SELECT);
+
+    if (error) {
+      const lower = getErrorMessage(error).toLowerCase();
+      if (
+        lower.includes('unique') ||
+        lower.includes('duplicate') ||
+        lower.includes('telecalling_contacts_vendor_mobile')
+      ) {
+        // Race or partial conflict — insert one-by-one skipping dupes.
+        for (const row of chunk) {
+          const { data: one, error: oneError } = await supabase
+            .from('telecalling_contacts')
+            .insert(row)
+            .select(CONTACT_SELECT)
+            .maybeSingle();
+          if (oneError || !one) {
+            // Count as skipped existing / race, not a hard failure.
+            continue;
+          }
+          inserted.push(mapContactRow(one as ContactRow));
         }
-        inserted.push(mapContactRow(one as ContactRow));
+        continue;
       }
-      return {
-        inserted,
-        skippedExisting: skippedExisting + racedSkips,
-      };
+      throw mapTelecallingError(error);
     }
-    throw mapTelecallingError(error);
+
+    for (const row of (data ?? []) as ContactRow[]) {
+      inserted.push(mapContactRow(row));
+    }
   }
+
+  const racedSkips = toInsert.length - inserted.length;
   return {
-    inserted: ((data ?? []) as ContactRow[]).map(mapContactRow),
-    skippedExisting,
+    inserted,
+    skippedExisting: skippedExisting + Math.max(0, racedSkips),
   };
 }
 

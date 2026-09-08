@@ -18,7 +18,13 @@ const ZOOM_STEP = 0.25;
 const FIT_PADDING_PX = 16;
 
 interface ReceiptViewerProps {
-  html: string;
+  /** Live invoice HTML (Android / web). */
+  html?: string | null;
+  /**
+   * Generated Invoice PDF file URI (iOS).
+   * Prefer this when set so the on-screen receipt matches the Invoice PDF exactly.
+   */
+  pdfUri?: string | null;
 }
 
 function zoomScript(zoom: number): string {
@@ -84,13 +90,37 @@ function buildFitToScreenScript(fallbackWidth: number): string {
   `;
 }
 
-export function ReceiptViewer({ html }: ReceiptViewerProps) {
+function normalizePdfUri(uri: string): string {
+  if (
+    uri.startsWith('file://') ||
+    uri.startsWith('content://') ||
+    uri.startsWith('http://') ||
+    uri.startsWith('https://')
+  ) {
+    return uri;
+  }
+  if (uri.startsWith('/')) return `file://${uri}`;
+  return `file://${uri}`;
+}
+
+export function ReceiptViewer({ html, pdfUri }: ReceiptViewerProps) {
   const theme = useTheme();
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const webRef = useRef<WebView>(null);
   const [zoom, setZoom] = useState(1);
   const [viewerWidth, setViewerWidth] = useState(windowWidth);
   const fitZoomRef = useRef(1);
+
+  // iOS: show the same Invoice PDF file so spacing/fonts/images match print output.
+  const showPdf = Platform.OS === 'ios' && Boolean(pdfUri?.trim());
+  const resolvedPdfUri = showPdf && pdfUri ? normalizePdfUri(pdfUri) : null;
+  const readAccessUrl = useMemo(() => {
+    if (!resolvedPdfUri?.startsWith('file://')) return undefined;
+    const withoutFile = resolvedPdfUri.replace(/^file:\/\//, '');
+    const lastSlash = withoutFile.lastIndexOf('/');
+    if (lastSlash <= 0) return resolvedPdfUri;
+    return `file://${withoutFile.slice(0, lastSlash + 1)}`;
+  }, [resolvedPdfUri]);
 
   const applyZoom = useCallback((next: number) => {
     const clamped = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, next));
@@ -122,7 +152,6 @@ export function ReceiptViewer({ html }: ReceiptViewerProps) {
   /**
    * Keep layout viewport = device width so window.innerWidth matches the
    * WebView. Receipt HTML is a fixed ~680px invoice; CSS zoom fits it.
-   * user-scalable keeps pinch-zoom available alongside +/- controls.
    */
   const injectedBefore = `
     (function() {
@@ -147,44 +176,46 @@ export function ReceiptViewer({ html }: ReceiptViewerProps) {
 
   return (
     <View style={styles.root}>
-      <View
-        style={[
-          styles.zoomBar,
-          {
-            backgroundColor: theme.colors.surface,
-            borderBottomColor: colors.grayLight,
-          },
-        ]}
-      >
-        <IconButton
-          icon="minus"
-          mode="contained-tonal"
-          size={20}
-          onPress={() => applyZoom(zoom - ZOOM_STEP)}
-          disabled={zoom <= MIN_ZOOM}
-          accessibilityLabel="Zoom out"
-        />
-        <Text
-          variant="labelLarge"
-          style={{
-            color: theme.colors.onSurface,
-            minWidth: 52,
-            textAlign: 'center',
-          }}
-          onLongPress={() => applyZoom(fitZoomRef.current)}
-          accessibilityLabel="Zoom level. Long press to fit screen."
+      {!showPdf ? (
+        <View
+          style={[
+            styles.zoomBar,
+            {
+              backgroundColor: theme.colors.surface,
+              borderBottomColor: colors.grayLight,
+            },
+          ]}
         >
-          {zoomPercent}
-        </Text>
-        <IconButton
-          icon="plus"
-          mode="contained-tonal"
-          size={20}
-          onPress={() => applyZoom(zoom + ZOOM_STEP)}
-          disabled={zoom >= MAX_ZOOM}
-          accessibilityLabel="Zoom in"
-        />
-      </View>
+          <IconButton
+            icon="minus"
+            mode="contained-tonal"
+            size={20}
+            onPress={() => applyZoom(zoom - ZOOM_STEP)}
+            disabled={zoom <= MIN_ZOOM}
+            accessibilityLabel="Zoom out"
+          />
+          <Text
+            variant="labelLarge"
+            style={{
+              color: theme.colors.onSurface,
+              minWidth: 52,
+              textAlign: 'center',
+            }}
+            onLongPress={() => applyZoom(fitZoomRef.current)}
+            accessibilityLabel="Zoom level. Long press to fit screen."
+          >
+            {zoomPercent}
+          </Text>
+          <IconButton
+            icon="plus"
+            mode="contained-tonal"
+            size={20}
+            onPress={() => applyZoom(zoom + ZOOM_STEP)}
+            disabled={zoom >= MAX_ZOOM}
+            accessibilityLabel="Zoom in"
+          />
+        </View>
+      ) : null}
 
       <View
         style={styles.webviewHost}
@@ -193,36 +224,52 @@ export function ReceiptViewer({ html }: ReceiptViewerProps) {
           if (nextWidth > 0) setViewerWidth(nextWidth);
         }}
       >
-        <WebView
-          ref={webRef}
-          originWhitelist={['*']}
-          source={{ html }}
-          style={[styles.webview, { minHeight: windowHeight * 0.75 }]}
-          // Fit is handled via CSS zoom; avoid Android auto-scale fighting 680px layout.
-          scalesPageToFit={false}
-          setSupportMultipleWindows={false}
-          javaScriptEnabled
-          domStorageEnabled
-          showsVerticalScrollIndicator
-          showsHorizontalScrollIndicator
-          injectedJavaScriptBeforeContentLoaded={injectedBefore}
-          onMessage={handleMessage}
-          onLoadEnd={() => {
-            webRef.current?.injectJavaScript(
-              buildFitToScreenScript(viewerWidth || windowWidth)
-            );
-          }}
-          {...(Platform.OS === 'android'
-            ? {
-                setBuiltInZoomControls: true,
-                setDisplayZoomControls: false,
-                nestedScrollEnabled: true,
-              }
-            : {
-                // iOS pinch-zoom via WKWebView + user-scalable viewport
-                allowsInlineMediaPlayback: true,
-              })}
-        />
+        {showPdf && resolvedPdfUri ? (
+          <WebView
+            originWhitelist={['*']}
+            source={{ uri: resolvedPdfUri }}
+            style={[styles.webview, { minHeight: windowHeight * 0.75 }]}
+            // iOS WKWebView renders the Invoice PDF with native layout + pinch zoom.
+            scalesPageToFit
+            allowFileAccess
+            allowFileAccessFromFileURLs
+            allowingReadAccessToURL={readAccessUrl}
+            setSupportMultipleWindows={false}
+            javaScriptEnabled={false}
+            showsVerticalScrollIndicator
+            showsHorizontalScrollIndicator
+            allowsInlineMediaPlayback
+          />
+        ) : html ? (
+          <WebView
+            ref={webRef}
+            originWhitelist={['*']}
+            source={{ html }}
+            style={[styles.webview, { minHeight: windowHeight * 0.75 }]}
+            scalesPageToFit={false}
+            setSupportMultipleWindows={false}
+            javaScriptEnabled
+            domStorageEnabled
+            showsVerticalScrollIndicator
+            showsHorizontalScrollIndicator
+            injectedJavaScriptBeforeContentLoaded={injectedBefore}
+            onMessage={handleMessage}
+            onLoadEnd={() => {
+              webRef.current?.injectJavaScript(
+                buildFitToScreenScript(viewerWidth || windowWidth)
+              );
+            }}
+            {...(Platform.OS === 'android'
+              ? {
+                  setBuiltInZoomControls: true,
+                  setDisplayZoomControls: false,
+                  nestedScrollEnabled: true,
+                }
+              : {
+                  allowsInlineMediaPlayback: true,
+                })}
+          />
+        ) : null}
       </View>
     </View>
   );
