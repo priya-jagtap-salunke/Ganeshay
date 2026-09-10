@@ -41,6 +41,12 @@ export type WhatsAppMediaShareParams = {
    * startActivity (needed for some PDF edge cases).
    */
   forceDialog?: boolean;
+  /**
+   * Android RN Share: copy into app internal storage before share.
+   * Default true. Set false for already-local catalogue PDFs (large files)
+   * so WhatsApp still gets the same file:// URI with jid targeting.
+   */
+  useInternalStorage?: boolean;
 };
 
 const SHARE_TIMEOUT_MS = 8_000;
@@ -214,7 +220,7 @@ export async function shareWhatsAppMedia(
       social,
       url,
       type,
-      useInternalStorage: true,
+      useInternalStorage: params.useInternalStorage !== false,
     };
     if (filename) options.filename = filename;
     if (message) options.message = message;

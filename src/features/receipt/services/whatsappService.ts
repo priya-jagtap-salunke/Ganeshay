@@ -18,7 +18,6 @@ import {
   showWhatsAppMissingAlert,
   type WhatsAppAppKind,
 } from '../utils/whatsappApp';
-import { shareWhatsAppMedia } from '../utils/whatsappMediaShare';
 import { downloadMurtiPhotoOnWeb } from '@/features/bookings/utils/murtiPhotoStorage';
 
 export type ShareReceiptWhatsAppOptions = {
@@ -37,8 +36,42 @@ function downloadPdfOnWeb(pdfUri: string, bookingNumber: string): void {
   anchor.click();
 }
 
+/** Real receipts are far larger than an empty/corrupt PDF shell. */
+const MIN_RECEIPT_PDF_BYTES = 2_048;
+
+async function assertValidReceiptPdf(path: string): Promise<void> {
+  const info = await FileSystem.getInfoAsync(path);
+  if (!info.exists || info.isDirectory) {
+    throw new Error('Receipt PDF was not found after generation.');
+  }
+  if (typeof info.size === 'number' && info.size < MIN_RECEIPT_PDF_BYTES) {
+    throw new Error('Receipt PDF is empty. Please try again.');
+  }
+
+  try {
+    const head = await FileSystem.readAsStringAsync(path, {
+      encoding: FileSystem.EncodingType.Base64,
+      length: 8,
+      position: 0,
+    });
+    // "%PDF" in base64 starts with "JVBERi"
+    if (head && !head.startsWith('JVBERi')) {
+      throw new Error('Generated receipt file is not a valid PDF.');
+    }
+  } catch (verifyError) {
+    if (
+      verifyError instanceof Error &&
+      verifyError.message.includes('not a valid PDF')
+    ) {
+      throw verifyError;
+    }
+    // Some platforms ignore length/position — size check above still applies.
+  }
+}
+
 /**
- * Ensure a real on-disk PDF with size > 0 and a file:// URI ending in .pdf.
+ * Copy the View Receipt PDF to a stable on-disk .pdf so the system share
+ * sheet / WhatsApp treat it as a document (never image or blank attach).
  */
 async function ensureShareablePdfUri(
   pdfUri: string,
@@ -49,40 +82,7 @@ async function ensureShareablePdfUri(
       ? pdfUri
       : `file://${pdfUri}`;
 
-  const sourceInfo = await FileSystem.getInfoAsync(source);
-  if (!sourceInfo.exists || sourceInfo.isDirectory) {
-    throw new Error('Invoice PDF was not found after generation.');
-  }
-  if (typeof sourceInfo.size === 'number' && sourceInfo.size < 64) {
-    throw new Error('Invoice PDF is empty. Please try again.');
-  }
-
-  const verifyPdfHeader = async (path: string) => {
-    try {
-      const head = await FileSystem.readAsStringAsync(path, {
-        encoding: FileSystem.EncodingType.Base64,
-        length: 8,
-        position: 0,
-      });
-      if (head && !head.startsWith('JVBERi')) {
-        throw new Error('Generated invoice file is not a valid PDF.');
-      }
-    } catch (verifyError) {
-      if (
-        verifyError instanceof Error &&
-        verifyError.message.includes('not a valid PDF')
-      ) {
-        throw verifyError;
-      }
-    }
-  };
-
-  if (/\.pdf$/i.test(source) || source.startsWith('content://')) {
-    await verifyPdfHeader(source);
-    return source.startsWith('file://') || source.startsWith('content://')
-      ? source
-      : `file://${source}`;
-  }
+  await assertValidReceiptPdf(source);
 
   const cacheDir = FileSystem.cacheDirectory;
   if (!cacheDir) {
@@ -100,31 +100,36 @@ async function ensureShareablePdfUri(
   // Same on-disk name family as Download Receipt / View Receipt PDF.
   const destPath = `${downloadDir}Receipt_${safeNumber}.pdf`;
 
-  const existing = await FileSystem.getInfoAsync(destPath);
-  const sameSize =
-    existing.exists &&
-    !existing.isDirectory &&
-    typeof existing.size === 'number' &&
-    typeof sourceInfo.size === 'number' &&
-    existing.size === sourceInfo.size;
-
-  if (!sameSize) {
-    await FileSystem.copyAsync({ from: source, to: destPath });
+  try {
+    await FileSystem.deleteAsync(destPath, { idempotent: true });
+  } catch {
+    // ignore
   }
-
-  const info = await FileSystem.getInfoAsync(destPath);
-  if (!info.exists || info.isDirectory) {
-    throw new Error('Could not prepare the invoice PDF for WhatsApp.');
-  }
-  if (typeof info.size === 'number' && info.size < 64) {
-    throw new Error(
-      'Could not prepare the invoice PDF for WhatsApp (empty file).'
-    );
-  }
-
-  await verifyPdfHeader(destPath);
+  await FileSystem.copyAsync({ from: source, to: destPath });
+  await assertValidReceiptPdf(destPath);
 
   return destPath.startsWith('file://') ? destPath : `file://${destPath}`;
+}
+
+/**
+ * Share the receipt as a real PDF via the system share sheet (same approach
+ * that fixed blank catalogue PDFs). User picks WhatsApp to attach the file.
+ */
+async function shareReceiptPdfViaSystemSheet(
+  pdfUri: string,
+  bookingNumber: string
+): Promise<void> {
+  const Sharing = await import('expo-sharing');
+  const available = await Sharing.isAvailableAsync();
+  if (!available) {
+    throw new Error('Sharing is not available on this device.');
+  }
+
+  await Sharing.shareAsync(pdfUri, {
+    mimeType: 'application/pdf',
+    dialogTitle: `Share Receipt ${bookingNumber}`,
+    UTI: 'com.adobe.pdf',
+  });
 }
 
 function isUserCancelledShare(error: unknown): boolean {
@@ -137,18 +142,6 @@ function isUserCancelledShare(error: unknown): boolean {
     msg.includes('user canceled') ||
     msg.includes('ecancelled') ||
     msg.includes('ecanceled')
-  );
-}
-
-function isWhatsAppMissingError(error: unknown): boolean {
-  const msg = (
-    error instanceof Error ? error.message : String(error)
-  ).toLowerCase();
-  return (
-    msg.includes('not installed') ||
-    msg.includes('no activity found') ||
-    msg.includes('activitynotfound') ||
-    msg.includes('no activity')
   );
 }
 
@@ -292,33 +285,10 @@ export async function shareNewBookingDetailsOnWhatsApp(
   await openDeviceWhatsAppApp(phone, message, appKind);
 }
 
-async function attachInvoicePdf(params: {
-  phone: string;
-  appKind: WhatsAppAppKind;
-  pdfUri: string;
-  bookingNumber: string;
-}): Promise<void> {
-  const { phone, appKind, pdfUri, bookingNumber } = params;
-  // Same filename convention as Download / View Receipt PDF.
-  const pdfFilename = `Receipt_${bookingNumber}.pdf`;
-
-  await shareWhatsAppMedia({
-    title: `Receipt ${bookingNumber}`,
-    phone,
-    appKind,
-    url: pdfUri,
-    type: 'application/pdf',
-    filename: pdfFilename,
-    // Never caption — text path can drop the PDF.
-    message: undefined,
-    targetPhone: true,
-  });
-}
-
 /**
- * Share the View Receipt PDF (generated via generateReceiptPdf) to WhatsApp.
- * Caller must pass the same PDF URI View Receipt uses — do not substitute
- * images or a simplified invoice layout.
+ * Share the View Receipt PDF (from generateReceiptPdf) as a real .pdf document.
+ * Uses the system share sheet so WhatsApp receives application/pdf — not a
+ * blank/corrupt attach from the direct WhatsApp share path.
  */
 export async function shareNewBookingInvoicePdfOnWhatsApp(
   booking: Booking,
@@ -350,12 +320,6 @@ export async function shareNewBookingInvoicePdfOnWhatsApp(
     return;
   }
 
-  const appKind = await resolveInstalledWhatsAppApp();
-  if (!appKind) {
-    showWhatsAppMissingAlert();
-    return;
-  }
-
   let shareablePdfUri: string;
   try {
     shareablePdfUri = await ensureShareablePdfUri(
@@ -367,41 +331,23 @@ export async function shareNewBookingInvoicePdfOnWhatsApp(
     Alert.alert(
       'Receipt PDF Failed',
       getErrorMessage(error) ||
-        'Could not prepare the receipt PDF for WhatsApp. Please try again.'
+        'Could not prepare the receipt PDF. Please try again.'
     );
     return;
   }
 
   try {
-    await attachInvoicePdf({
-      phone,
-      appKind,
-      pdfUri: shareablePdfUri,
-      bookingNumber: booking.booking_number,
-    });
+    await shareReceiptPdfViaSystemSheet(
+      shareablePdfUri,
+      booking.booking_number
+    );
   } catch (error) {
     if (isUserCancelledShare(error)) return;
-    if (isWhatsAppMissingError(error)) {
-      const alternate: WhatsAppAppKind =
-        appKind === 'consumer' ? 'business' : 'consumer';
-      try {
-        await attachInvoicePdf({
-          phone,
-          appKind: alternate,
-          pdfUri: shareablePdfUri,
-          bookingNumber: booking.booking_number,
-        });
-        return;
-      } catch {
-        showWhatsAppMissingAlert();
-        return;
-      }
-    }
-    console.warn('Receipt PDF WhatsApp share failed', error);
+    console.warn('Receipt PDF share failed', error);
     Alert.alert(
-      'Share Receipt PDF',
+      'Share Invoice PDF',
       getErrorMessage(error) ||
-        'Could not open WhatsApp with the receipt PDF. Please try again.'
+        'Could not share the receipt PDF. Please try again.'
     );
   }
 }

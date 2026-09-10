@@ -9,7 +9,9 @@ import {
   openDeviceWhatsAppApp,
   resolveInstalledWhatsAppApp,
   showWhatsAppMissingAlert,
+  type WhatsAppAppKind,
 } from '@/features/receipt/utils/whatsappApp';
+import { shareWhatsAppMedia } from '@/features/receipt/utils/whatsappMediaShare';
 import { buildStallDetailsWhatsAppMessage } from '@/features/telecalling/utils/stallDetailsWhatsAppMessage';
 import {
   downloadMurtiesPdfOnWeb,
@@ -189,27 +191,35 @@ async function prepareCatalogPdfDocument(
 }
 
 /**
- * Share the catalogue as a real PDF document via the system share sheet.
- * User picks WhatsApp — file is attached as application/pdf (not image/preview).
+ * Attach the prepared catalogue PDF into THIS contact's WhatsApp chat.
+ * Same PDF file as before — only the open target changes (jid / phone).
  */
-async function shareCatalogPdfViaSystemSheet(pdfUri: string): Promise<void> {
-  const Sharing = await import('expo-sharing');
-  const available = await Sharing.isAvailableAsync();
-  if (!available) {
-    throw new Error('Sharing is not available on this device.');
-  }
-
-  await Sharing.shareAsync(pdfUri, {
-    mimeType: 'application/pdf',
-    dialogTitle: 'Share catalogue PDF',
-    UTI: 'com.adobe.pdf',
+async function shareCatalogPdfToContact(params: {
+  pdfUri: string;
+  phone: string;
+  filename: string;
+  appKind: WhatsAppAppKind;
+}): Promise<void> {
+  const { pdfUri, phone, filename, appKind } = params;
+  await shareWhatsAppMedia({
+    title: 'Share catalogue PDF',
+    phone,
+    appKind,
+    url: pdfUri,
+    type: 'application/pdf',
+    filename,
+    // Never caption — text path can drop the PDF.
+    message: undefined,
+    targetPhone: true,
+    // Keep the prepared catalogue file as-is (no multi-MB re-copy).
+    useInternalStorage: false,
   });
 }
 
 /**
  * Tele-Messaging → Send catalogue:
- * Prepares the Settings catalogue as a valid .pdf and opens the system share
- * sheet so WhatsApp receives a PDF document attachment.
+ * Prepares the Settings catalogue as a valid .pdf and opens WhatsApp directly
+ * to the viewed contact with that PDF attached.
  */
 export async function shareCatalogOnWhatsApp(
   recipient: TeleMessagingShareRecipient,
@@ -247,6 +257,12 @@ export async function shareCatalogOnWhatsApp(
     return;
   }
 
+  const appKind = await resolveInstalledWhatsAppApp();
+  if (!appKind) {
+    showWhatsAppMissingAlert();
+    return;
+  }
+
   let documentUri: string;
   try {
     documentUri = await prepareCatalogPdfDocument(
@@ -265,15 +281,33 @@ export async function shareCatalogOnWhatsApp(
   }
 
   try {
-    await shareCatalogPdfViaSystemSheet(documentUri);
+    await shareCatalogPdfToContact({
+      pdfUri: documentUri,
+      phone,
+      filename,
+      appKind,
+    });
   } catch (error) {
     if (isUserCancelledShare(error)) return;
-    console.warn('Catalogue WhatsApp share failed', error);
-    Alert.alert(
-      'WhatsApp Failed',
-      error instanceof Error
-        ? error.message
-        : 'Could not share the catalogue PDF. Please try again.'
-    );
+    const alternate: WhatsAppAppKind =
+      appKind === 'consumer' ? 'business' : 'consumer';
+    try {
+      await shareCatalogPdfToContact({
+        pdfUri: documentUri,
+        phone,
+        filename,
+        appKind: alternate,
+      });
+      return;
+    } catch (retryError) {
+      if (isUserCancelledShare(retryError)) return;
+      console.warn('Catalogue WhatsApp share failed', retryError);
+      Alert.alert(
+        'WhatsApp Failed',
+        error instanceof Error
+          ? error.message
+          : 'Could not share the catalogue PDF. Please try again.'
+      );
+    }
   }
 }
