@@ -13,7 +13,7 @@ import { isWebBrowser, usesNativePdf } from '../utils/receiptPlatform';
 import { captureReceiptHtmlToPng } from '../utils/receiptImageCapture';
 
 /** Bump when invoice HTML changes so cached PDFs regenerate. */
-const RECEIPT_TEMPLATE_VERSION = 16;
+const RECEIPT_TEMPLATE_VERSION = 17;
 
 const pdfCache = new Map<string, string>();
 /** Dedupe concurrent generateReceiptPdf calls for the same booking. */

@@ -97,7 +97,8 @@ async function ensureShareablePdfUri(
   }
 
   const safeNumber = bookingNumber.replace(/[^\w.-]+/g, '_');
-  const destPath = `${downloadDir}Invoice_${safeNumber}.pdf`;
+  // Same on-disk name family as Download Receipt / View Receipt PDF.
+  const destPath = `${downloadDir}Receipt_${safeNumber}.pdf`;
 
   const existing = await FileSystem.getInfoAsync(destPath);
   const sameSize =
@@ -298,10 +299,11 @@ async function attachInvoicePdf(params: {
   bookingNumber: string;
 }): Promise<void> {
   const { phone, appKind, pdfUri, bookingNumber } = params;
-  const pdfFilename = `Invoice_${bookingNumber}.pdf`;
+  // Same filename convention as Download / View Receipt PDF.
+  const pdfFilename = `Receipt_${bookingNumber}.pdf`;
 
   await shareWhatsAppMedia({
-    title: `Invoice ${bookingNumber}`,
+    title: `Receipt ${bookingNumber}`,
     phone,
     appKind,
     url: pdfUri,
@@ -314,8 +316,9 @@ async function attachInvoicePdf(params: {
 }
 
 /**
- * Share the generated invoice as a real PDF (.pdf) into the customer's WhatsApp.
- * Never converts to image or other formats.
+ * Share the View Receipt PDF (generated via generateReceiptPdf) to WhatsApp.
+ * Caller must pass the same PDF URI View Receipt uses — do not substitute
+ * images or a simplified invoice layout.
  */
 export async function shareNewBookingInvoicePdfOnWhatsApp(
   booking: Booking,
@@ -326,8 +329,8 @@ export async function shareNewBookingInvoicePdfOnWhatsApp(
 
   if (!pdfUri) {
     Alert.alert(
-      'Invoice PDF Failed',
-      'Invoice PDF is missing. Please try again.'
+      'Receipt PDF Failed',
+      'Receipt PDF is missing. Please try again.'
     );
     return;
   }
@@ -335,7 +338,7 @@ export async function shareNewBookingInvoicePdfOnWhatsApp(
   if (Platform.OS === 'web') {
     downloadPdfOnWeb(pdfUri, booking.booking_number);
     Alert.alert(
-      'Invoice PDF Downloaded',
+      'Receipt PDF Downloaded',
       'Attach the downloaded receipt PDF in WhatsApp.'
     );
     const whatsAppUrl = getWhatsAppWebUrl(phone, '');
@@ -360,11 +363,11 @@ export async function shareNewBookingInvoicePdfOnWhatsApp(
       booking.booking_number
     );
   } catch (error) {
-    console.warn('Could not prepare invoice PDF for WhatsApp', error);
+    console.warn('Could not prepare receipt PDF for WhatsApp', error);
     Alert.alert(
-      'Invoice PDF Failed',
+      'Receipt PDF Failed',
       getErrorMessage(error) ||
-        'Could not prepare the invoice PDF for WhatsApp. Please try again.'
+        'Could not prepare the receipt PDF for WhatsApp. Please try again.'
     );
     return;
   }
@@ -394,11 +397,11 @@ export async function shareNewBookingInvoicePdfOnWhatsApp(
         return;
       }
     }
-    console.warn('Invoice PDF WhatsApp share failed', error);
+    console.warn('Receipt PDF WhatsApp share failed', error);
     Alert.alert(
-      'Share Invoice PDF',
+      'Share Receipt PDF',
       getErrorMessage(error) ||
-        'Could not open WhatsApp with the invoice PDF. Please try again.'
+        'Could not open WhatsApp with the receipt PDF. Please try again.'
     );
   }
 }

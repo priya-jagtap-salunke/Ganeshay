@@ -149,19 +149,47 @@ export function useReceipt() {
     }
   };
 
-  /** Generate invoice PDF and attach the real .pdf file on WhatsApp. */
+  /**
+   * Share Invoice PDF — same receipt PDF as View Receipt (layout, murti photo,
+   * amounts, booking ID, etc.). Always regenerates from the full booking row.
+   */
   const shareInvoicePdfOnWhatsApp = async (booking: Booking) => {
     if (sendInFlight.current) return;
     sendInFlight.current = true;
     try {
-      const pdfUri = await getOrCreatePdf(booking, false, { silent: true });
-      await shareNewBookingInvoicePdfOnWhatsApp(booking, pdfUri);
+      if (!(booking.customer_name ?? '').trim()) {
+        Alert.alert(
+          'Customer Name Missing',
+          'This booking does not have a customer name.'
+        );
+        return;
+      }
+      const phone = formatWhatsAppPhone(booking.mobile ?? '');
+      if (!phone || phone.length < 10) {
+        Alert.alert(
+          'Invalid Mobile',
+          'This booking does not have a valid customer mobile number.'
+        );
+        return;
+      }
+
+      // Full booking (includes murti_photo_uri) — list rows omit large fields.
+      const { fetchBookingById } = await import(
+        '@/features/bookings/api/bookingsApi'
+      );
+      const fullBooking = await fetchBookingById(booking.id);
+
+      // Same generator View Receipt uses; drop cache so share is never a stale PDF.
+      invalidateReceiptCache(fullBooking.id);
+      const pdfUri = await generateReceiptPdf(fullBooking, settings);
+
+      await shareNewBookingInvoicePdfOnWhatsApp(fullBooking, pdfUri);
     } catch (error) {
       console.warn('Share invoice PDF failed', error);
       Alert.alert(
         'Share Invoice PDF',
         getErrorMessage(error) ||
-          'Could not share the invoice PDF. Please try again.'
+          'Could not share the receipt PDF. Please try again.'
       );
     } finally {
       sendInFlight.current = false;
