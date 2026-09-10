@@ -122,6 +122,36 @@ export async function removeMurtiesPdf(storedUri: string | null): Promise<void> 
 export async function ensureShareableMurtiesPdfUri(
   storedUri: string
 ): Promise<string> {
+  const verifyPdf = async (fileUri: string): Promise<string> => {
+    const info = await FileSystem.getInfoAsync(fileUri);
+    if (!info.exists || info.isDirectory) {
+      throw new Error('Murties PDF file was not found on device.');
+    }
+    if (typeof info.size === 'number' && info.size < 64) {
+      throw new Error('Could not create a shareable murties PDF file.');
+    }
+    try {
+      const head = await FileSystem.readAsStringAsync(fileUri, {
+        encoding: FileSystem.EncodingType.Base64,
+        length: 8,
+        position: 0,
+      });
+      if (head && !head.startsWith('JVBERi')) {
+        throw new Error(
+          'Catalogue file is not a valid PDF. Re-upload the PDF in Settings.'
+        );
+      }
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        error.message.toLowerCase().includes('not a valid pdf')
+      ) {
+        throw error;
+      }
+    }
+    return fileUri.startsWith('file://') ? fileUri : `file://${fileUri}`;
+  };
+
   // Already a local .pdf — share in place. Large catalogues (50–150 MB) must
   // not be copied on every Send; that made the button spin for a long time.
   if (!storedUri.startsWith('data:')) {
@@ -133,9 +163,9 @@ export async function ensureShareableMurtiesPdfUri(
       throw new Error('Could not create a shareable murties PDF file.');
     }
     if (/\.pdf$/i.test(storedUri)) {
-      return storedUri.startsWith('file://')
-        ? storedUri
-        : `file://${storedUri}`;
+      return verifyPdf(
+        storedUri.startsWith('file://') ? storedUri : `file://${storedUri}`
+      );
     }
 
     // Force a .pdf path so WhatsApp never sees a wrong extension.
@@ -151,7 +181,7 @@ export async function ensureShareableMurtiesPdfUri(
     }
     const dest = `${downloadDir}murties-catalog-share.pdf`;
     await FileSystem.copyAsync({ from: storedUri, to: dest });
-    return dest.startsWith('file://') ? dest : `file://${dest}`;
+    return verifyPdf(dest);
   }
 
   const cacheDir = FileSystem.cacheDirectory;
@@ -175,7 +205,7 @@ export async function ensureShareableMurtiesPdfUri(
     typeof existing.size === 'number' &&
     existing.size >= 64
   ) {
-    return dest.startsWith('file://') ? dest : `file://${dest}`;
+    return verifyPdf(dest);
   }
 
   const base64 = storedUri.split(',')[1] ?? '';
@@ -186,12 +216,7 @@ export async function ensureShareableMurtiesPdfUri(
     encoding: FileSystem.EncodingType.Base64,
   });
 
-  const shared = await FileSystem.getInfoAsync(dest);
-  if (!shared.exists || (typeof shared.size === 'number' && shared.size < 64)) {
-    throw new Error('Could not create a shareable murties PDF file.');
-  }
-
-  return dest.startsWith('file://') ? dest : `file://${dest}`;
+  return verifyPdf(dest);
 }
 
 export function downloadMurtiesPdfOnWeb(

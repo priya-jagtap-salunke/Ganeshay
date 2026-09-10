@@ -1,4 +1,5 @@
 import { Platform, Linking, Alert } from 'react-native';
+import * as FileSystem from 'expo-file-system';
 import { BusinessSettings } from '@/types/settings';
 import {
   formatWhatsAppPhone,
@@ -8,9 +9,7 @@ import {
   openDeviceWhatsAppApp,
   resolveInstalledWhatsAppApp,
   showWhatsAppMissingAlert,
-  type WhatsAppAppKind,
 } from '@/features/receipt/utils/whatsappApp';
-import { shareWhatsAppMedia } from '@/features/receipt/utils/whatsappMediaShare';
 import { buildStallDetailsWhatsAppMessage } from '@/features/telecalling/utils/stallDetailsWhatsAppMessage';
 import {
   downloadMurtiesPdfOnWeb,
@@ -34,7 +33,9 @@ function isUserCancelledShare(error: unknown): boolean {
     msg.includes('user cancelled') ||
     msg.includes('user canceled') ||
     msg.includes('ecancelled') ||
-    msg.includes('ecanceled')
+    msg.includes('ecanceled') ||
+    msg.includes('share cancelled') ||
+    msg.includes('share canceled')
   );
 }
 
@@ -103,37 +104,112 @@ export async function sharePredraftedMessageOnWhatsApp(
   await openDeviceWhatsAppApp(phone, message, installedApp);
 }
 
-/**
- * Attach the Settings catalogue as a real PDF (.pdf) into the customer's WhatsApp.
- * Never converts to image or other formats.
- */
-async function shareCatalogPdfFile(params: {
-  phone: string;
-  appKind: WhatsAppAppKind;
-  pdfUri: string;
-  filename: string;
-}): Promise<void> {
-  const { phone, appKind, pdfUri, filename } = params;
-  const pdfName = filename.toLowerCase().endsWith('.pdf')
-    ? filename
-    : `${filename}.pdf`;
+async function assertValidPdfFile(fileUri: string): Promise<void> {
+  const info = await FileSystem.getInfoAsync(fileUri);
+  if (!info.exists || info.isDirectory) {
+    throw new Error('Catalogue PDF file was not found on device.');
+  }
+  if (typeof info.size === 'number' && info.size < 64) {
+    throw new Error('Catalogue PDF is empty or incomplete.');
+  }
 
-  await shareWhatsAppMedia({
-    title: 'Ganesh Murti Catalog',
-    phone,
-    appKind,
-    url: pdfUri,
-    type: 'application/pdf',
-    filename: pdfName,
-    message: undefined,
-    targetPhone: true,
-    forceDialog: false,
+  try {
+    const head = await FileSystem.readAsStringAsync(fileUri, {
+      encoding: FileSystem.EncodingType.Base64,
+      length: 8,
+      position: 0,
+    });
+    // "%PDF" in base64 starts with "JVBERi"
+    if (head && !head.startsWith('JVBERi')) {
+      throw new Error(
+        'Catalogue file is not a valid PDF. Re-upload the PDF in Settings.'
+      );
+    }
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      error.message.toLowerCase().includes('not a valid pdf')
+    ) {
+      throw error;
+    }
+    // Some platforms ignore length/position — rely on size check above.
+  }
+}
+
+/**
+ * Build a shareable on-disk .pdf with the catalogue filename so the system
+ * share sheet / WhatsApp treat it as a PDF document (not an image or link).
+ */
+async function prepareCatalogPdfDocument(
+  storedUri: string,
+  filename: string
+): Promise<string> {
+  const sourceUri = await ensureShareableMurtiesPdfUri(storedUri);
+  await assertValidPdfFile(sourceUri);
+
+  const cacheDir = FileSystem.cacheDirectory;
+  if (!cacheDir) {
+    throw new Error('File storage is unavailable on this device.');
+  }
+
+  const downloadDir = `${cacheDir}Download/`;
+  try {
+    await FileSystem.makeDirectoryAsync(downloadDir, { intermediates: true });
+  } catch {
+    // may exist
+  }
+
+  const safeBase =
+    filename
+      .replace(/\.pdf$/i, '')
+      .replace(/[^\w.-]+/g, '_')
+      .trim() || 'Ganesha_Murties_Catalog';
+  const dest = `${downloadDir}${safeBase}.pdf`;
+
+  const sourceInfo = await FileSystem.getInfoAsync(sourceUri);
+  const existing = await FileSystem.getInfoAsync(dest);
+  const sameFile =
+    existing.exists &&
+    !existing.isDirectory &&
+    typeof existing.size === 'number' &&
+    typeof sourceInfo.size === 'number' &&
+    existing.size === sourceInfo.size;
+
+  if (!sameFile) {
+    try {
+      await FileSystem.deleteAsync(dest, { idempotent: true });
+    } catch {
+      // ignore
+    }
+    await FileSystem.copyAsync({ from: sourceUri, to: dest });
+  }
+
+  await assertValidPdfFile(dest);
+  return dest.startsWith('file://') ? dest : `file://${dest}`;
+}
+
+/**
+ * Share the catalogue as a real PDF document via the system share sheet.
+ * User picks WhatsApp — file is attached as application/pdf (not image/preview).
+ */
+async function shareCatalogPdfViaSystemSheet(pdfUri: string): Promise<void> {
+  const Sharing = await import('expo-sharing');
+  const available = await Sharing.isAvailableAsync();
+  if (!available) {
+    throw new Error('Sharing is not available on this device.');
+  }
+
+  await Sharing.shareAsync(pdfUri, {
+    mimeType: 'application/pdf',
+    dialogTitle: 'Share catalogue PDF',
+    UTI: 'com.adobe.pdf',
   });
 }
 
 /**
  * Tele-Messaging → Send catalogue:
- * Opens WhatsApp for the customer with the Settings catalogue PDF attached.
+ * Prepares the Settings catalogue as a valid .pdf and opens the system share
+ * sheet so WhatsApp receives a PDF document attachment.
  */
 export async function shareCatalogOnWhatsApp(
   recipient: TeleMessagingShareRecipient,
@@ -171,52 +247,33 @@ export async function shareCatalogOnWhatsApp(
     return;
   }
 
-  const installedApp = await resolveInstalledWhatsAppApp();
-  if (!installedApp) {
-    showWhatsAppMissingAlert();
-    return;
-  }
-
-  let shareablePdfUri: string;
+  let documentUri: string;
   try {
-    shareablePdfUri = await ensureShareableMurtiesPdfUri(resolved.murtiesPdfUri);
+    documentUri = await prepareCatalogPdfDocument(
+      resolved.murtiesPdfUri,
+      filename
+    );
   } catch (error) {
     console.warn('Could not prepare Settings catalog PDF for WhatsApp', error);
     Alert.alert(
       'PDF Attach Failed',
-      'Could not prepare the catalog PDF from Settings. Re-upload it in Settings and try again.'
+      error instanceof Error
+        ? error.message
+        : 'Could not prepare the catalog PDF from Settings. Re-upload it in Settings and try again.'
     );
     return;
   }
 
   try {
-    await shareCatalogPdfFile({
-      phone,
-      appKind: installedApp,
-      pdfUri: shareablePdfUri,
-      filename,
-    });
+    await shareCatalogPdfViaSystemSheet(documentUri);
   } catch (error) {
     if (isUserCancelledShare(error)) return;
-
-    const alternate: WhatsAppAppKind =
-      installedApp === 'consumer' ? 'business' : 'consumer';
-    try {
-      await shareCatalogPdfFile({
-        phone,
-        appKind: alternate,
-        pdfUri: shareablePdfUri,
-        filename,
-      });
-      return;
-    } catch (retryError) {
-      if (isUserCancelledShare(retryError)) return;
-    }
-
     console.warn('Catalogue WhatsApp share failed', error);
     Alert.alert(
       'WhatsApp Failed',
-      'Could not share the Settings catalogue PDF. Please try again.'
+      error instanceof Error
+        ? error.message
+        : 'Could not share the catalogue PDF. Please try again.'
     );
   }
 }
