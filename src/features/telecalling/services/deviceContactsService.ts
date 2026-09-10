@@ -9,6 +9,7 @@ import {
 /** Fields safe on both platforms. Never request Note on iOS — it needs a special
  * Apple entitlement; without it getContactsAsync fails and returns null. */
 const CONTACT_READ_FIELDS: Contacts.FieldType[] = [
+  Contacts.Fields.ID,
   Contacts.Fields.PhoneNumbers,
   Contacts.Fields.Name,
   Contacts.Fields.FirstName,
@@ -58,6 +59,7 @@ function hasContactsAccess(
   response: Contacts.PermissionResponse
 ): boolean {
   if (response.granted) return true;
+  if (response.status === Contacts.PermissionStatus.GRANTED) return true;
   // iOS 18+ may expose limited access on newer native modules.
   const privileges = (
     response as Contacts.PermissionResponse & {
@@ -89,7 +91,11 @@ export async function ensureContactsPermission(): Promise<boolean> {
     const current = await Contacts.getPermissionsAsync();
     if (hasContactsAccess(current)) return true;
 
-    if (current.status === Contacts.PermissionStatus.DENIED && !current.canAskAgain) {
+    // Permanently denied — must open Settings.
+    if (
+      current.status === Contacts.PermissionStatus.DENIED &&
+      current.canAskAgain === false
+    ) {
       showContactsPermissionDeniedAlert();
       return false;
     }
@@ -128,20 +134,43 @@ function contactDisplayName(contact: Contacts.Contact): string {
   return '';
 }
 
-/** Prefer digits (iOS) then formatted number — both normalize to last 10. */
-function phoneToMobile(phone: Contacts.PhoneNumber): string {
-  // Try digits first (raw), then number. Also join both if one is incomplete.
-  const candidates = [phone.digits, phone.number]
+/** Digits-only from any phone field (Android often has `number` only, not `digits`). */
+function rawPhoneDigits(phone: Contacts.PhoneNumber): string {
+  const parts = [phone.digits, phone.number]
     .map((value) => (value || '').trim())
     .filter(Boolean);
-  for (const raw of candidates) {
-    const mobile = normalizeMobile(raw);
-    if (isValidIndianMobile(mobile)) {
-      return mobile;
-    }
+  // Prefer the longest digit run after stripping non-digits.
+  let best = '';
+  for (const raw of parts) {
+    const digits = raw.replace(/\D/g, '');
+    if (digits.length > best.length) best = digits;
   }
-  // Last resort: first candidate normalized (may be invalid — caller checks).
-  return candidates.length ? normalizeMobile(candidates[0]) : '';
+  return best;
+}
+
+/**
+ * Prefer digits (iOS) then formatted number — both normalize to last 10.
+ * Also accepts +91 / 0-prefixed Indian mobiles from the phone book.
+ */
+function phoneToMobile(phone: Contacts.PhoneNumber): string {
+  const digits = rawPhoneDigits(phone);
+  if (!digits) return '';
+
+  // Direct last-10 (covers +91XXXXXXXXXX and plain 10-digit).
+  const last10 = normalizeMobile(digits);
+  if (isValidIndianMobile(last10)) return last10;
+
+  // Strip leading 91 / 0 then re-check.
+  let rest = digits;
+  if (rest.startsWith('91') && rest.length > 10) {
+    rest = rest.slice(2);
+  } else if (rest.startsWith('0') && rest.length > 10) {
+    rest = rest.slice(1);
+  }
+  const normalized = normalizeMobile(rest);
+  if (isValidIndianMobile(normalized)) return normalized;
+
+  return last10;
 }
 
 function isGenericContactName(name: string, mobile: string): boolean {
@@ -171,9 +200,11 @@ function pickBetterOption(
 }
 
 /**
- * Fetch all device contacts.
- * Prefer a single unpaged query (expo-contacts default). Fall back to paging
- * if the native layer returns a partial page.
+ * Fetch all device contacts with reliable paging.
+ *
+ * Android quirk: pageSize 0 ("get all") still sets hasNextPage=true when any
+ * contacts exist, so we always page with an explicit pageSize and stop when a
+ * page returns fewer rows than requested or hasNextPage is false.
  */
 async function fetchAllDeviceContacts(
   fields: Contacts.FieldType[]
@@ -192,27 +223,12 @@ async function fetchAllDeviceContacts(
     }
   };
 
-  // 1) Default: all contacts in one call (recommended by expo-contacts docs).
-  try {
-    const all = await Contacts.getContactsAsync({
-      fields,
-      sort: Contacts.SortTypes.FirstName,
-    });
-    if (Array.isArray(all?.data) && all.data.length > 0 && !all.hasNextPage) {
-      return all.data;
-    }
-    if (Array.isArray(all?.data) && all.data.length > 0) {
-      remember(all.data, 0);
-    }
-  } catch {
-    // Fall through to paged fetch.
-  }
-
-  // 2) Paged fallback for older / partial native responses.
-  const pageSize = 200;
+  const pageSize = 300;
   let pageOffset = 0;
   let guard = 0;
-  while (guard < 250) {
+  let pagedError: unknown = null;
+
+  while (guard < 500) {
     guard += 1;
     let page: Contacts.ContactResponse;
     try {
@@ -223,8 +239,8 @@ async function fetchAllDeviceContacts(
         sort: Contacts.SortTypes.FirstName,
       });
     } catch (error) {
-      if (byId.size > 0) break;
-      throw error;
+      pagedError = error;
+      break;
     }
 
     const rows = page?.data;
@@ -232,10 +248,34 @@ async function fetchAllDeviceContacts(
       break;
     }
     remember(rows, pageOffset);
-    if (!page.hasNextPage) {
+
+    // Stop when native says done, or when we got a short final page.
+    if (!page.hasNextPage || rows.length < pageSize) {
       break;
     }
-    pageOffset += rows.length;
+    pageOffset += pageSize;
+  }
+
+  if (byId.size > 0) {
+    return [...byId.values()];
+  }
+
+  // Fallback: unpaged dump (still useful if paging failed / empty quirk).
+  try {
+    const all = await Contacts.getContactsAsync({
+      fields,
+      sort: Contacts.SortTypes.FirstName,
+    });
+    if (Array.isArray(all?.data) && all.data.length > 0) {
+      remember(all.data, 0);
+    }
+  } catch (error) {
+    if (pagedError) throw pagedError;
+    throw error;
+  }
+
+  if (byId.size === 0 && pagedError) {
+    throw pagedError;
   }
 
   return [...byId.values()];
@@ -245,7 +285,10 @@ async function fetchAllDeviceContacts(
  * Build a Set of normalized (last-10-digit) mobiles already on the device.
  */
 export async function getExistingDeviceMobileSet(): Promise<Set<string>> {
-  const data = await fetchAllDeviceContacts([Contacts.Fields.PhoneNumbers]);
+  const data = await fetchAllDeviceContacts([
+    Contacts.Fields.ID,
+    Contacts.Fields.PhoneNumbers,
+  ]);
 
   const existing = new Set<string>();
   for (const contact of data) {
@@ -270,6 +313,8 @@ export interface DeviceContactOption {
 
 export interface LoadDeviceContactOptionsResult {
   options: DeviceContactOption[];
+  /** Raw contacts returned by the OS (before phone filtering). */
+  deviceContactCount: number;
   skippedInvalid: number;
   skippedDuplicateOnDevice: number;
   accessLimited: boolean;
@@ -308,7 +353,7 @@ export async function loadDeviceContactOptions(): Promise<LoadDeviceContactOptio
     const message =
       error instanceof Error ? error.message : 'Could not read phone contacts';
     throw new Error(
-      `${message}. If this persists on iPhone, open Settings → Ganeshay → Contacts and allow access, then reopen the app.`
+      `${message}. If this persists, open Settings → Ganeshay → Contacts and allow access, then reopen the app.`
     );
   }
 
@@ -319,15 +364,22 @@ export async function loadDeviceContactOptions(): Promise<LoadDeviceContactOptio
   for (const contact of data) {
     const name = contactDisplayName(contact);
     const phones = [...(contact.phoneNumbers ?? [])].sort((a, b) => {
-      // Prefer primary numbers so the right label wins when duplicates exist.
       if (a.isPrimary && !b.isPrimary) return -1;
       if (!a.isPrimary && b.isPrimary) return 1;
       return 0;
     });
 
+    if (phones.length === 0) {
+      skippedInvalid += 1;
+      continue;
+    }
+
     for (const phone of phones) {
-      const raw = (phone.digits || phone.number || '').trim();
-      if (!raw) continue;
+      const raw = rawPhoneDigits(phone);
+      if (!raw) {
+        skippedInvalid += 1;
+        continue;
+      }
 
       const mobile = phoneToMobile(phone);
       if (!isValidIndianMobile(mobile)) {
@@ -359,6 +411,7 @@ export async function loadDeviceContactOptions(): Promise<LoadDeviceContactOptio
 
   return {
     options,
+    deviceContactCount: data.length,
     skippedInvalid,
     skippedDuplicateOnDevice,
     accessLimited,
@@ -388,7 +441,6 @@ export function deviceOptionsToImportInputs(
       continue;
     }
 
-    // Keep the better name if the same mobile was selected twice.
     if (
       isGenericContactName(existing.name, mobile) &&
       !isGenericContactName(name, mobile)
@@ -464,7 +516,6 @@ export async function syncContactsToDevice(
           },
         ],
       };
-      // Contact Notes entitlement is not configured — only set notes on Android.
       if (Platform.OS === 'android' && contact.notes?.trim()) {
         payload.note = contact.notes.trim();
       }

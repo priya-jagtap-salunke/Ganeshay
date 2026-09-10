@@ -41,6 +41,9 @@ export function DeviceContactsPickerModal({
   const [selectedKeys, setSelectedKeys] = useState<string[]>([]);
   const [query, setQuery] = useState('');
   const [accessLimited, setAccessLimited] = useState(false);
+  const [deviceContactCount, setDeviceContactCount] = useState(0);
+  const [skippedInvalid, setSkippedInvalid] = useState(0);
+  const [loadNonce, setLoadNonce] = useState(0);
 
   const selectedKeySet = useMemo(
     () => new Set(selectedKeys),
@@ -53,6 +56,8 @@ export function DeviceContactsPickerModal({
     setQuery('');
     setError(null);
     setAccessLimited(false);
+    setDeviceContactCount(0);
+    setSkippedInvalid(0);
   }, []);
 
   useEffect(() => {
@@ -70,6 +75,8 @@ export function DeviceContactsPickerModal({
         if (cancelled) return;
         setOptions(result.options);
         setAccessLimited(result.accessLimited);
+        setDeviceContactCount(result.deviceContactCount);
+        setSkippedInvalid(result.skippedInvalid);
         // Auto-select all so Import is immediately tappable.
         setSelectedKeys(result.options.map((opt) => opt.key));
         if (result.accessLimited && result.options.length === 0) {
@@ -83,6 +90,7 @@ export function DeviceContactsPickerModal({
         if (cancelled) return;
         setError(getErrorMessage(err));
         setSelectedKeys([]);
+        setOptions([]);
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -91,7 +99,7 @@ export function DeviceContactsPickerModal({
     return () => {
       cancelled = true;
     };
-  }, [visible, resetState]);
+  }, [visible, resetState, loadNonce]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -167,6 +175,25 @@ export function DeviceContactsPickerModal({
     onConfirm(selected);
   };
 
+  const handleReload = () => {
+    setLoadNonce((n) => n + 1);
+  };
+
+  const emptyMessage = (() => {
+    if (options.length > 0) return 'No contacts match your search.';
+    if (accessLimited) {
+      return 'No shared contacts with a valid Indian mobile. Allow Full Access in Settings, or share more contacts.';
+    }
+    if (deviceContactCount > 0) {
+      return `Found ${deviceContactCount} phone-book contact(s), but none had a valid 10-digit Indian mobile (starting with 6–9).${
+        skippedInvalid
+          ? ` Skipped ${skippedInvalid} number(s) without a usable mobile.`
+          : ''
+      }`;
+    }
+    return 'No contacts found on this phone. Check Settings → Ganeshay → Contacts permission, then tap Reload.';
+  })();
+
   return (
     <Modal
       visible={visible}
@@ -215,6 +242,13 @@ export function DeviceContactsPickerModal({
             <View style={styles.centered}>
               <EmptyState icon="alert-circle-outline" message={error} />
               <AppButton
+                variant="primary"
+                onPress={handleReload}
+                style={styles.closeBtn}
+              >
+                Reload
+              </AppButton>
+              <AppButton
                 variant="outline"
                 onPress={onDismiss}
                 style={styles.closeBtn}
@@ -238,6 +272,9 @@ export function DeviceContactsPickerModal({
                   {options.length
                     ? ` · ${options.length} with valid mobile`
                     : ''}
+                  {deviceContactCount > 0 && options.length === 0
+                    ? ` · ${deviceContactCount} on phone`
+                    : ''}
                 </Text>
                 {filtered.length > 0 ? (
                   <Pressable onPress={toggleSelectAllFiltered} hitSlop={8}>
@@ -248,6 +285,10 @@ export function DeviceContactsPickerModal({
                           ? 'Select all visible'
                           : 'Select all'}
                     </Text>
+                  </Pressable>
+                ) : options.length === 0 ? (
+                  <Pressable onPress={handleReload} hitSlop={8}>
+                    <Text style={styles.selectAll}>Reload</Text>
                   </Pressable>
                 ) : null}
               </View>
@@ -262,13 +303,7 @@ export function DeviceContactsPickerModal({
                 ListEmptyComponent={
                   <EmptyState
                     icon="account-off-outline"
-                    message={
-                      options.length === 0
-                        ? accessLimited
-                          ? 'No shared contacts with a valid Indian mobile. Allow Full Access in Settings, or share more contacts.'
-                          : 'No valid Indian mobile numbers found on this phone.'
-                        : 'No contacts match your search.'
-                    }
+                    message={emptyMessage}
                   />
                 }
                 renderItem={({ item }) => {
@@ -281,12 +316,17 @@ export function DeviceContactsPickerModal({
                         checked && styles.rowSelected,
                         pressed && styles.rowPressed,
                       ]}
+                      accessibilityRole="checkbox"
+                      accessibilityState={{ checked }}
+                      accessibilityLabel={`${item.name}, ${item.mobile}`}
                     >
-                      <Checkbox
-                        status={checked ? 'checked' : 'unchecked'}
-                        onPress={() => toggleKey(item.key)}
-                        color={colors.royalRed}
-                      />
+                      {/* pointerEvents none — avoid Checkbox+Pressable double toggle */}
+                      <View pointerEvents="none">
+                        <Checkbox
+                          status={checked ? 'checked' : 'unchecked'}
+                          color={colors.royalRed}
+                        />
+                      </View>
                       <View style={styles.rowText}>
                         <Text style={styles.rowName} numberOfLines={1}>
                           {item.name}
