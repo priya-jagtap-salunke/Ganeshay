@@ -110,7 +110,9 @@ export function MurtiesPdfPicker({
               <Text style={styles.fileName} numberOfLines={2}>
                 {pdfName || 'Ganesha_Murties_Catalog.pdf'}
               </Text>
-              <Text style={styles.fileMeta}>Ready to send on WhatsApp</Text>
+              <Text style={styles.fileMeta}>
+                Saved on this device · ready to send
+              </Text>
             </View>
           </View>
         ) : (

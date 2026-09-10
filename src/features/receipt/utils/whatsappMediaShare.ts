@@ -47,6 +47,8 @@ export type WhatsAppMediaShareParams = {
    * so WhatsApp still gets the same file:// URI with jid targeting.
    */
   useInternalStorage?: boolean;
+  /** Override share timeout (ms). Large catalogue PDFs need longer. */
+  timeoutMs?: number;
 };
 
 const SHARE_TIMEOUT_MS = 8_000;
@@ -233,16 +235,20 @@ export async function shareWhatsAppMedia(
       options.forceDialog = true;
     }
 
+    const timeoutMs =
+      params.timeoutMs ?? (isPdf ? 60_000 : SHARE_TIMEOUT_MS);
+
     await withTimeout(
       NativeRNShare.shareSingle(options),
-      SHARE_TIMEOUT_MS,
+      timeoutMs,
       'WhatsApp share timed out. Please try again.'
     );
     return;
   }
 
   // iOS — attach real PDF (com.adobe.pdf) or image via patched WhatsAppShare.
-  const timeoutMs = isPdf ? 20_000 : 3_000;
+  const timeoutMs =
+    params.timeoutMs ?? (isPdf ? 60_000 : 3_000);
   try {
     await withTimeout(
       Share.shareSingle({

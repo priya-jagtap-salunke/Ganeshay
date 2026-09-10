@@ -148,13 +148,16 @@ function rawPhoneDigits(phone: Contacts.PhoneNumber): string {
 
 /**
  * Normalize a phone-book number to 10 digits for import.
- * Accepts +91 / 0 prefixes and any 10-digit local number.
+ * Accepts +91 / 0 / 00xx prefixes and any 10-digit local number.
  */
 function phoneToMobile(phone: Contacts.PhoneNumber): string {
-  const digits = rawPhoneDigits(phone);
+  let digits = rawPhoneDigits(phone);
   if (!digits) return '';
 
-  // Prefer Indian mobile shape when the full string is longer.
+  // Strip common international / trunk prefixes before taking last 10.
+  if (digits.startsWith('00') && digits.length > 12) {
+    digits = digits.slice(2);
+  }
   if (digits.startsWith('91') && digits.length >= 12) {
     const local = digits.slice(2);
     const mobile = normalizeMobile(local);
@@ -225,46 +228,50 @@ function rememberContacts(
 }
 
 /**
- * Fetch every device contact the OS will give us.
+ * Fetch every device contact the OS will give us (full phone book).
  *
- * Android: pageSize 0 returns all contacts but sets hasNextPage incorrectly —
- * we always keep the full `data` array from that call, then also page+merge.
+ * Uses an explicit pageSize:0 dump plus large-page paging, then merges by id.
+ * Android sets hasNextPage=true incorrectly when pageSize is 0 — never use that
+ * flag from an unpaged response to decide when to stop.
  */
 async function fetchAllDeviceContacts(
   fields: Contacts.FieldType[]
 ): Promise<Contacts.Contact[]> {
   const byId = new Map<string, Contacts.Contact>();
 
-  const tryFetch = async (
-    options: Contacts.ContactQuery,
-    label: number
-  ): Promise<void> => {
-    const page = await Contacts.getContactsAsync(options);
-    if (Array.isArray(page?.data) && page.data.length > 0) {
-      rememberContacts(byId, page.data, label);
+  const mergePage = (rows: Contacts.Contact[] | undefined, label: number) => {
+    if (Array.isArray(rows) && rows.length > 0) {
+      rememberContacts(byId, rows, label);
     }
   };
 
-  // 1) Unpaged dump — primary path (docs: pageSize 0 / omitted = all contacts).
+  // 1) Explicit full dump (pageSize 0 = all contacts per expo-contacts docs).
   try {
-    await tryFetch({ fields }, 0);
+    const all = await Contacts.getContactsAsync({
+      fields,
+      pageSize: 0,
+      sort: Contacts.SortTypes.FirstName,
+    });
+    mergePage(all?.data, 0);
+  } catch {
+    // continue with paging
+  }
+
+  // 2) Unsorted full dump — some OEMs omit phones unless sorted/unsorted differs.
+  try {
+    const all = await Contacts.getContactsAsync({
+      fields,
+      pageSize: 0,
+    });
+    mergePage(all?.data, 1);
   } catch {
     // continue
   }
 
-  // 2) Unpaged with FirstName sort (some devices only fill phones when sorted).
-  try {
-    await tryFetch({ fields, sort: Contacts.SortTypes.FirstName }, 1);
-  } catch {
-    // continue
-  }
-
-  // 3) Explicit paging — merge anything the unpaged call missed.
-  const pageSize = 100;
+  // 3) Page through the book — primary path when unpaged is capped by the OS.
+  const pageSize = 250;
   let pageOffset = 0;
-  let guard = 0;
-  while (guard < 1000) {
-    guard += 1;
+  for (let guard = 0; guard < 2000; guard += 1) {
     let page: Contacts.ContactResponse;
     try {
       page = await Contacts.getContactsAsync({
@@ -281,26 +288,25 @@ async function fetchAllDeviceContacts(
     if (!Array.isArray(rows) || rows.length === 0) {
       break;
     }
-    rememberContacts(byId, rows, 1000 + pageOffset);
+    mergePage(rows, 10_000 + pageOffset);
 
-    // Android hasNextPage with pageSize>0 is reliable; also stop on short page.
-    if (!page.hasNextPage || rows.length < pageSize) {
-      break;
-    }
+    // Advance by requested page size (expo pageOffset = skip count).
     pageOffset += pageSize;
+    if (rows.length < pageSize) break;
+    // Only trust hasNextPage when pageSize > 0 (Android lies when pageSize is 0).
+    if (page.hasNextPage === false) break;
   }
 
-  // 4) iOS: also pull raw (non-unified) contacts — can surface more numbers.
+  // 4) iOS: raw (non-unified) contacts can surface extra phone numbers.
   if (Platform.OS === 'ios') {
     try {
-      await tryFetch(
-        {
-          fields,
-          rawContacts: true,
-          sort: Contacts.SortTypes.FirstName,
-        },
-        5000
-      );
+      const raw = await Contacts.getContactsAsync({
+        fields,
+        pageSize: 0,
+        rawContacts: true,
+        sort: Contacts.SortTypes.FirstName,
+      });
+      mergePage(raw?.data, 50_000);
     } catch {
       // optional
     }
@@ -350,7 +356,8 @@ export interface LoadDeviceContactOptionsResult {
 
 /**
  * Load device address-book entries as selectable options for in-app multi-select.
- * Shows every phone-book contact that has a usable 10-digit number.
+ * Loads the full phone book (every contact the OS returns) and lists each
+ * entry that has a usable 10-digit number. Nothing is pre-selected by the caller.
  */
 export async function loadDeviceContactOptions(): Promise<LoadDeviceContactOptionsResult> {
   if (!isDeviceContactsSupported()) {
@@ -385,6 +392,25 @@ export async function loadDeviceContactOptions(): Promise<LoadDeviceContactOptio
     );
   }
 
+  // If the first field set returned almost nothing, retry with phone+name only
+  // (some Android builds drop rows when extra name fields are requested).
+  if (data.length < 30) {
+    try {
+      const retry = await fetchAllDeviceContacts([
+        Contacts.Fields.ID,
+        Contacts.Fields.PhoneNumbers,
+        Contacts.Fields.Name,
+        Contacts.Fields.FirstName,
+        Contacts.Fields.LastName,
+      ]);
+      if (retry.length > data.length) {
+        data = retry;
+      }
+    } catch {
+      // keep first result
+    }
+  }
+
   const byMobile = new Map<string, DeviceContactOption>();
   let skippedInvalid = 0;
   let skippedDuplicateOnDevice = 0;
@@ -394,7 +420,6 @@ export async function loadDeviceContactOptions(): Promise<LoadDeviceContactOptio
     const phones = [...(contact.phoneNumbers ?? [])].sort((a, b) => {
       if (a.isPrimary && !b.isPrimary) return -1;
       if (!a.isPrimary && b.isPrimary) return 1;
-      // Prefer numbers that look like Indian mobiles.
       const aScore = isValidIndianMobile(phoneToMobile(a)) ? 1 : 0;
       const bScore = isValidIndianMobile(phoneToMobile(b)) ? 1 : 0;
       return bScore - aScore;
@@ -444,6 +469,17 @@ export async function loadDeviceContactOptions(): Promise<LoadDeviceContactOptio
   const options = [...byMobile.values()].sort((a, b) =>
     a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })
   );
+
+  // Treat a tiny result set as limited when iOS did not report privileges.
+  if (
+    !accessLimited &&
+    Platform.OS === 'ios' &&
+    options.length > 0 &&
+    options.length < 30 &&
+    data.length < 30
+  ) {
+    accessLimited = true;
+  }
 
   return {
     options,

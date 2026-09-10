@@ -8,6 +8,7 @@ import {
   Modal,
   Alert,
   Platform,
+  Linking,
 } from 'react-native';
 import { Text, Checkbox, Searchbar, IconButton } from 'react-native-paper';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -77,20 +78,22 @@ export function DeviceContactsPickerModal({
         setAccessLimited(result.accessLimited);
         setDeviceContactCount(result.deviceContactCount);
         setSkippedInvalid(result.skippedInvalid);
-        // Auto-select all so Import is immediately tappable.
-        setSelectedKeys(result.options.map((opt) => opt.key));
+        // Never pre-select — user picks one, many, or Select all.
+        setSelectedKeys([]);
         if (result.accessLimited) {
           Alert.alert(
             'Limited Contacts access',
-            `Only ${result.options.length} contact(s) are available to Ganeshay.\n\nTo import your full phone book: open Settings → Ganeshay → Contacts → Full Access, then tap Reload in this screen.`
+            `Only ${result.options.length} contact(s) are available to Ganeshay.\n\nTo import your full phone book: open Settings → Ganeshay → Contacts → Full Access, then tap Reload in this screen.`,
+            [
+              { text: 'Not now', style: 'cancel' },
+              {
+                text: 'Open Settings',
+                onPress: () => {
+                  Linking.openSettings().catch(() => undefined);
+                },
+              },
+            ]
           );
-        } else if (
-          result.deviceContactCount > 0 &&
-          result.options.length > 0 &&
-          result.options.length < 30 &&
-          result.skippedInvalid > result.options.length
-        ) {
-          // Many phone-book rows had no usable 10-digit number — still show what we can.
         }
       })
       .catch((err) => {
@@ -296,6 +299,18 @@ export function DeviceContactsPickerModal({
                 ) : null}
               </View>
 
+              {accessLimited ? (
+                <Pressable
+                  onPress={() => Linking.openSettings().catch(() => undefined)}
+                  style={styles.limitedBanner}
+                >
+                  <Text style={styles.limitedBannerText}>
+                    Limited Contacts access — tap to open Settings and allow
+                    Full Access, then Reload.
+                  </Text>
+                </Pressable>
+              ) : null}
+
               <FlatList
                 data={filtered}
                 keyExtractor={(item) => item.key}
@@ -430,6 +445,19 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '700',
     color: colors.royalRed,
+  },
+  limitedBanner: {
+    backgroundColor: colors.errorContainer,
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.sm,
+    marginBottom: spacing.sm,
+  },
+  limitedBannerText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.royalRedDark,
+    lineHeight: 18,
   },
   list: {
     flex: 1,

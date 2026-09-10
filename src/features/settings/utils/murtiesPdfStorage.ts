@@ -37,6 +37,44 @@ function estimateBase64Bytes(base64: string): number {
   return Math.ceil((base64.length * 3) / 4);
 }
 
+async function assertPdfMagic(fileUri: string): Promise<void> {
+  const head = await FileSystem.readAsStringAsync(fileUri, {
+    encoding: FileSystem.EncodingType.Base64,
+    length: 8,
+    position: 0,
+  });
+  // "%PDF" in base64 starts with "JVBERi"
+  if (!head || !head.startsWith('JVBERi')) {
+    throw new Error(
+      'Catalogue file is not a valid PDF. Re-upload the PDF in Settings.'
+    );
+  }
+}
+
+/** Remove cached share copies so Send always uses the latest Settings PDF. */
+export async function clearMurtiesPdfShareCache(): Promise<void> {
+  if (Platform.OS === 'web') return;
+  const cacheDir = FileSystem.cacheDirectory;
+  if (!cacheDir) return;
+
+  const downloadDir = `${cacheDir}Download/`;
+  const known = [
+    `${downloadDir}murties-catalog-share.pdf`,
+    `${downloadDir}Ganesha_Murties_Catalog.pdf`,
+  ];
+  for (const path of known) {
+    try {
+      await FileSystem.deleteAsync(path, { idempotent: true });
+    } catch {
+      // ignore
+    }
+  }
+}
+
+/**
+ * Persist the complete Catalogue PDF to durable on-device storage.
+ * Verifies size + PDF header so partial/corrupt saves are rejected.
+ */
 export async function persistMurtiesPdf(
   sourceUri: string,
   fileName: string
@@ -47,6 +85,9 @@ export async function persistMurtiesPdf(
       throw new Error(
         'PDF is too large for web storage. Please use a file under 25 MB, or upload from the Android/iOS app (up to 150 MB).'
       );
+    }
+    if (!base64.startsWith('JVBERi')) {
+      throw new Error('Selected file is not a valid PDF.');
     }
     return {
       uri: `data:application/pdf;base64,${base64}`,
@@ -60,13 +101,25 @@ export async function persistMurtiesPdf(
   }
   const dest = `${baseDir}${PDF_FILENAME}`;
 
+  try {
+    await FileSystem.deleteAsync(dest, { idempotent: true });
+  } catch {
+    // ignore
+  }
+
+  let expectedSize: number | null = null;
+
   // Prefer copy for large catalogs — base64 round-trip OOMs above ~20–30 MB.
   if (sourceUri.startsWith('data:')) {
     const base64 = sourceUri.split(',')[1] ?? '';
     if (!base64) {
       throw new Error('PDF data is empty.');
     }
-    if (estimateBase64Bytes(base64) > MAX_NATIVE_MURTIES_PDF_BYTES) {
+    if (!base64.startsWith('JVBERi')) {
+      throw new Error('Selected file is not a valid PDF.');
+    }
+    expectedSize = estimateBase64Bytes(base64);
+    if (expectedSize > MAX_NATIVE_MURTIES_PDF_BYTES) {
       throw new Error('PDF is too large. Please use a file under 150 MB.');
     }
     await FileSystem.writeAsStringAsync(dest, base64, {
@@ -77,39 +130,72 @@ export async function persistMurtiesPdf(
     if (!info.exists || info.isDirectory) {
       throw new Error('Selected PDF was not found.');
     }
-    if (
-      typeof info.size === 'number' &&
-      info.size > MAX_NATIVE_MURTIES_PDF_BYTES
-    ) {
-      throw new Error('PDF is too large. Please use a file under 150 MB.');
+    if (typeof info.size === 'number') {
+      expectedSize = info.size;
+      if (info.size < 64) {
+        throw new Error('Selected PDF is empty or incomplete.');
+      }
+      if (info.size > MAX_NATIVE_MURTIES_PDF_BYTES) {
+        throw new Error('PDF is too large. Please use a file under 150 MB.');
+      }
     }
     await FileSystem.copyAsync({ from: sourceUri, to: dest });
   }
 
   const saved = await FileSystem.getInfoAsync(dest);
-  if (!saved.exists || (typeof saved.size === 'number' && saved.size < 64)) {
+  if (!saved.exists || saved.isDirectory) {
     throw new Error('Could not save the catalog PDF.');
   }
-
-  // Drop any cached share copy so the next Send uses this upload.
-  try {
-    const cacheDir = FileSystem.cacheDirectory;
-    if (cacheDir) {
-      await FileSystem.deleteAsync(`${cacheDir}Download/murties-catalog-share.pdf`, {
-        idempotent: true,
-      });
+  if (typeof saved.size === 'number' && saved.size < 64) {
+    try {
+      await FileSystem.deleteAsync(dest, { idempotent: true });
+    } catch {
+      // ignore
     }
-  } catch {
-    // ignore cache cleanup failures
+    throw new Error(
+      'Catalogue PDF did not save completely. Please upload the full PDF again.'
+    );
+  }
+  if (
+    expectedSize != null &&
+    typeof saved.size === 'number' &&
+    saved.size !== expectedSize
+  ) {
+    try {
+      await FileSystem.deleteAsync(dest, { idempotent: true });
+    } catch {
+      // ignore
+    }
+    throw new Error(
+      'Catalogue PDF save was incomplete. Please upload the full PDF again in one go.'
+    );
   }
 
-  return { uri: dest, name: fileName };
+  try {
+    await assertPdfMagic(dest);
+  } catch (error) {
+    try {
+      await FileSystem.deleteAsync(dest, { idempotent: true });
+    } catch {
+      // ignore
+    }
+    throw error;
+  }
+
+  // Drop cached share copies so the next Send uses this complete upload.
+  await clearMurtiesPdfShareCache();
+
+  return {
+    uri: dest.startsWith('file://') ? dest : `file://${dest}`,
+    name: fileName,
+  };
 }
 
 export async function removeMurtiesPdf(storedUri: string | null): Promise<void> {
   if (!storedUri) return;
 
   if (storedUri.startsWith('data:') || Platform.OS === 'web') {
+    await clearMurtiesPdfShareCache();
     return;
   }
 
@@ -117,30 +203,44 @@ export async function removeMurtiesPdf(storedUri: string | null): Promise<void> 
   if (info.exists) {
     await FileSystem.deleteAsync(storedUri, { idempotent: true });
   }
+  // Also remove canonical path if Settings held a different URI.
+  const baseDir = FileSystem.documentDirectory;
+  if (baseDir) {
+    try {
+      await FileSystem.deleteAsync(`${baseDir}${PDF_FILENAME}`, {
+        idempotent: true,
+      });
+    } catch {
+      // ignore
+    }
+  }
+  await clearMurtiesPdfShareCache();
 }
 
+/**
+ * Resolve the Settings catalogue to a real on-disk .pdf URI for WhatsApp.
+ * Always prefers the complete persisted Settings file.
+ */
 export async function ensureShareableMurtiesPdfUri(
   storedUri: string
 ): Promise<string> {
   const verifyPdf = async (fileUri: string): Promise<string> => {
-    const info = await FileSystem.getInfoAsync(fileUri);
+    const normalized = fileUri.startsWith('file://')
+      ? fileUri
+      : `file://${fileUri}`;
+    const info = await FileSystem.getInfoAsync(normalized);
     if (!info.exists || info.isDirectory) {
-      throw new Error('Murties PDF file was not found on device.');
+      throw new Error(
+        'Catalogue PDF was not found. Upload it again in Settings.'
+      );
     }
     if (typeof info.size === 'number' && info.size < 64) {
-      throw new Error('Could not create a shareable murties PDF file.');
+      throw new Error(
+        'Catalogue PDF is empty or incomplete. Upload the full PDF in Settings.'
+      );
     }
     try {
-      const head = await FileSystem.readAsStringAsync(fileUri, {
-        encoding: FileSystem.EncodingType.Base64,
-        length: 8,
-        position: 0,
-      });
-      if (head && !head.startsWith('JVBERi')) {
-        throw new Error(
-          'Catalogue file is not a valid PDF. Re-upload the PDF in Settings.'
-        );
-      }
+      await assertPdfMagic(normalized);
     } catch (error) {
       if (
         error instanceof Error &&
@@ -148,24 +248,26 @@ export async function ensureShareableMurtiesPdfUri(
       ) {
         throw error;
       }
+      // Some platforms ignore length/position — size check above still applies.
     }
-    return fileUri.startsWith('file://') ? fileUri : `file://${fileUri}`;
+    return normalized;
   };
 
-  // Already a local .pdf — share in place. Large catalogues (50–150 MB) must
-  // not be copied on every Send; that made the button spin for a long time.
+  // Already a local .pdf — share the Settings file in place (no multi-MB copy).
   if (!storedUri.startsWith('data:')) {
     const info = await FileSystem.getInfoAsync(storedUri);
     if (!info.exists || info.isDirectory) {
-      throw new Error('Murties PDF file was not found on device.');
+      throw new Error(
+        'Catalogue PDF was not found. Upload it again in Settings.'
+      );
     }
     if (typeof info.size === 'number' && info.size < 64) {
-      throw new Error('Could not create a shareable murties PDF file.');
+      throw new Error(
+        'Catalogue PDF is empty or incomplete. Upload the full PDF in Settings.'
+      );
     }
     if (/\.pdf$/i.test(storedUri)) {
-      return verifyPdf(
-        storedUri.startsWith('file://') ? storedUri : `file://${storedUri}`
-      );
+      return verifyPdf(storedUri);
     }
 
     // Force a .pdf path so WhatsApp never sees a wrong extension.
@@ -180,7 +282,22 @@ export async function ensureShareableMurtiesPdfUri(
       // may exist
     }
     const dest = `${downloadDir}murties-catalog-share.pdf`;
+    try {
+      await FileSystem.deleteAsync(dest, { idempotent: true });
+    } catch {
+      // ignore
+    }
     await FileSystem.copyAsync({ from: storedUri, to: dest });
+    const copied = await FileSystem.getInfoAsync(dest);
+    if (
+      typeof info.size === 'number' &&
+      typeof copied.size === 'number' &&
+      copied.size !== info.size
+    ) {
+      throw new Error(
+        'Could not prepare the complete catalogue PDF. Try again.'
+      );
+    }
     return verifyPdf(dest);
   }
 
@@ -196,25 +313,37 @@ export async function ensureShareableMurtiesPdfUri(
     // May already exist.
   }
 
-  // Stable path so we rewrite data: URIs only once (not every Send).
   const dest = `${downloadDir}murties-catalog-share.pdf`;
-  const existing = await FileSystem.getInfoAsync(dest);
-  if (
-    existing.exists &&
-    !existing.isDirectory &&
-    typeof existing.size === 'number' &&
-    existing.size >= 64
-  ) {
-    return verifyPdf(dest);
-  }
-
   const base64 = storedUri.split(',')[1] ?? '';
   if (!base64) {
-    throw new Error('Murties PDF data is empty.');
+    throw new Error('Catalogue PDF data is empty. Upload it again in Settings.');
+  }
+  if (!base64.startsWith('JVBERi')) {
+    throw new Error(
+      'Catalogue file is not a valid PDF. Re-upload the PDF in Settings.'
+    );
+  }
+
+  try {
+    await FileSystem.deleteAsync(dest, { idempotent: true });
+  } catch {
+    // ignore
   }
   await FileSystem.writeAsStringAsync(dest, base64, {
     encoding: FileSystem.EncodingType.Base64,
   });
+
+  const expected = estimateBase64Bytes(base64);
+  const written = await FileSystem.getInfoAsync(dest);
+  if (
+    typeof written.size === 'number' &&
+    written.size !== expected &&
+    Math.abs(written.size - expected) > 4
+  ) {
+    throw new Error(
+      'Catalogue PDF did not materialize completely. Upload it again in Settings.'
+    );
+  }
 
   return verifyPdf(dest);
 }

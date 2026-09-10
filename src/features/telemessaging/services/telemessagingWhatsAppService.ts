@@ -11,6 +11,7 @@ import {
   showWhatsAppMissingAlert,
   type WhatsAppAppKind,
 } from '@/features/receipt/utils/whatsappApp';
+import { waitForWhatsAppReady } from '@/features/receipt/utils/whatsappTiming';
 import { shareWhatsAppMedia } from '@/features/receipt/utils/whatsappMediaShare';
 import { buildStallDetailsWhatsAppMessage } from '@/features/telecalling/utils/stallDetailsWhatsAppMessage';
 import {
@@ -106,12 +107,12 @@ export async function sharePredraftedMessageOnWhatsApp(
   await openDeviceWhatsAppApp(phone, message, installedApp);
 }
 
-async function assertValidPdfFile(fileUri: string): Promise<void> {
+async function assertValidPdfFile(fileUri: string): Promise<number> {
   const info = await FileSystem.getInfoAsync(fileUri);
   if (!info.exists || info.isDirectory) {
     throw new Error('Catalogue PDF file was not found on device.');
   }
-  if (typeof info.size === 'number' && info.size < 64) {
+  if (typeof info.size !== 'number' || info.size < 64) {
     throw new Error('Catalogue PDF is empty or incomplete.');
   }
 
@@ -136,18 +137,21 @@ async function assertValidPdfFile(fileUri: string): Promise<void> {
     }
     // Some platforms ignore length/position — rely on size check above.
   }
+
+  return info.size;
 }
 
 /**
- * Build a shareable on-disk .pdf with the catalogue filename so the system
- * share sheet / WhatsApp treat it as a PDF document (not an image or link).
+ * Build a shareable on-disk .pdf from the complete Settings catalogue.
+ * Always refreshes the share copy from Settings so WhatsApp never gets a
+ * stale/partial file.
  */
 async function prepareCatalogPdfDocument(
   storedUri: string,
   filename: string
 ): Promise<string> {
   const sourceUri = await ensureShareableMurtiesPdfUri(storedUri);
-  await assertValidPdfFile(sourceUri);
+  const sourceSize = await assertValidPdfFile(sourceUri);
 
   const cacheDir = FileSystem.cacheDirectory;
   if (!cacheDir) {
@@ -168,31 +172,41 @@ async function prepareCatalogPdfDocument(
       .trim() || 'Ganesha_Murties_Catalog';
   const dest = `${downloadDir}${safeBase}.pdf`;
 
-  const sourceInfo = await FileSystem.getInfoAsync(sourceUri);
-  const existing = await FileSystem.getInfoAsync(dest);
-  const sameFile =
-    existing.exists &&
-    !existing.isDirectory &&
-    typeof existing.size === 'number' &&
-    typeof sourceInfo.size === 'number' &&
-    existing.size === sourceInfo.size;
+  // If Settings file is already the correctly named .pdf, share it in place
+  // (avoids a second multi-MB copy for large catalogues).
+  const sourceNormalized = sourceUri.startsWith('file://')
+    ? sourceUri
+    : `file://${sourceUri}`;
+  if (
+    sourceNormalized.replace(/\\/g, '/').toLowerCase().endsWith(`/${safeBase.toLowerCase()}.pdf`)
+  ) {
+    return sourceNormalized;
+  }
 
-  if (!sameFile) {
+  try {
+    await FileSystem.deleteAsync(dest, { idempotent: true });
+  } catch {
+    // ignore
+  }
+  await FileSystem.copyAsync({ from: sourceUri, to: dest });
+
+  const destSize = await assertValidPdfFile(dest);
+  if (destSize !== sourceSize) {
     try {
       await FileSystem.deleteAsync(dest, { idempotent: true });
     } catch {
       // ignore
     }
-    await FileSystem.copyAsync({ from: sourceUri, to: dest });
+    throw new Error(
+      'Catalogue PDF copy was incomplete. Please try Send catalogue again.'
+    );
   }
 
-  await assertValidPdfFile(dest);
   return dest.startsWith('file://') ? dest : `file://${dest}`;
 }
 
 /**
  * Attach the prepared catalogue PDF into THIS contact's WhatsApp chat.
- * Same PDF file as before — only the open target changes (jid / phone).
  */
 async function shareCatalogPdfToContact(params: {
   pdfUri: string;
@@ -213,13 +227,16 @@ async function shareCatalogPdfToContact(params: {
     targetPhone: true,
     // Keep the prepared catalogue file as-is (no multi-MB re-copy).
     useInternalStorage: false,
+    // Large Settings PDFs need longer than the default media timeout.
+    timeoutMs: 90_000,
   });
 }
 
 /**
  * Tele-Messaging → Send catalogue:
- * Prepares the Settings catalogue as a valid .pdf and opens WhatsApp directly
- * to the viewed contact with that PDF attached.
+ * 1) Uses the complete Catalogue PDF already saved in Settings
+ * 2) Opens WhatsApp directly to the viewed contact
+ * 3) Attaches that PDF into the same chat (no manual contact search)
  */
 export async function shareCatalogOnWhatsApp(
   recipient: TeleMessagingShareRecipient,
@@ -265,10 +282,10 @@ export async function shareCatalogOnWhatsApp(
 
   let documentUri: string;
   try {
-    documentUri = await prepareCatalogPdfDocument(
-      resolved.murtiesPdfUri,
-      filename
-    );
+    // Always read the live Settings store so we share the complete saved PDF.
+    const liveUri =
+      useSettingsStore.getState().murtiesPdfUri ?? resolved.murtiesPdfUri;
+    documentUri = await prepareCatalogPdfDocument(liveUri, filename);
   } catch (error) {
     console.warn('Could not prepare Settings catalog PDF for WhatsApp', error);
     Alert.alert(
@@ -281,6 +298,11 @@ export async function shareCatalogOnWhatsApp(
   }
 
   try {
+    // 1) Open THIS contact's chat first — no Send-to picker / search.
+    await openDeviceWhatsAppApp(phone, '', appKind);
+    await waitForWhatsAppReady();
+
+    // 2) Attach the complete Settings catalogue PDF into that same chat.
     await shareCatalogPdfToContact({
       pdfUri: documentUri,
       phone,
@@ -292,6 +314,8 @@ export async function shareCatalogOnWhatsApp(
     const alternate: WhatsAppAppKind =
       appKind === 'consumer' ? 'business' : 'consumer';
     try {
+      await openDeviceWhatsAppApp(phone, '', alternate);
+      await waitForWhatsAppReady();
       await shareCatalogPdfToContact({
         pdfUri: documentUri,
         phone,
