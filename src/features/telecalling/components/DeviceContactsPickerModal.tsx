@@ -79,11 +79,18 @@ export function DeviceContactsPickerModal({
         setSkippedInvalid(result.skippedInvalid);
         // Auto-select all so Import is immediately tappable.
         setSelectedKeys(result.options.map((opt) => opt.key));
-        if (result.accessLimited && result.options.length === 0) {
+        if (result.accessLimited) {
           Alert.alert(
             'Limited Contacts access',
-            'iPhone only shared some contacts with Ganeshay. Open Settings → Ganeshay → Contacts and choose “Full Access”, or pick more contacts, then try again.'
+            `Only ${result.options.length} contact(s) are available to Ganeshay.\n\nTo import your full phone book: open Settings → Ganeshay → Contacts → Full Access, then tap Reload in this screen.`
           );
+        } else if (
+          result.deviceContactCount > 0 &&
+          result.options.length > 0 &&
+          result.options.length < 30 &&
+          result.skippedInvalid > result.options.length
+        ) {
+          // Many phone-book rows had no usable 10-digit number — still show what we can.
         }
       })
       .catch((err) => {
@@ -182,16 +189,16 @@ export function DeviceContactsPickerModal({
   const emptyMessage = (() => {
     if (options.length > 0) return 'No contacts match your search.';
     if (accessLimited) {
-      return 'No shared contacts with a valid Indian mobile. Allow Full Access in Settings, or share more contacts.';
+      return 'Limited Contacts access. Open Settings → Ganeshay → Contacts → Full Access, then tap Reload.';
     }
     if (deviceContactCount > 0) {
-      return `Found ${deviceContactCount} phone-book contact(s), but none had a valid 10-digit Indian mobile (starting with 6–9).${
+      return `Read ${deviceContactCount} phone-book contact(s), but none had a usable 10-digit phone number.${
         skippedInvalid
-          ? ` Skipped ${skippedInvalid} number(s) without a usable mobile.`
+          ? ` Skipped ${skippedInvalid} without a phone.`
           : ''
       }`;
     }
-    return 'No contacts found on this phone. Check Settings → Ganeshay → Contacts permission, then tap Reload.';
+    return 'No contacts found. Allow Contacts permission (Full Access on iPhone), then tap Reload.';
   })();
 
   return (
@@ -270,10 +277,10 @@ export function DeviceContactsPickerModal({
                 <Text style={styles.toolbarLabel}>
                   {selectedCount} selected
                   {options.length
-                    ? ` · ${options.length} with valid mobile`
+                    ? ` · ${options.length} from phone book`
                     : ''}
-                  {deviceContactCount > 0 && options.length === 0
-                    ? ` · ${deviceContactCount} on phone`
+                  {deviceContactCount > options.length
+                    ? ` · ${deviceContactCount} contacts read`
                     : ''}
                 </Text>
                 {filtered.length > 0 ? (

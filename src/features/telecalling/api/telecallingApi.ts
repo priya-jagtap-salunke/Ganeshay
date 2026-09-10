@@ -13,7 +13,11 @@ import {
   normalizeTeleMessagingStatus,
 } from '@/types/telemessaging';
 import { getErrorMessage, getSupabaseConfigError } from '@/utils/errors';
-import { isValidIndianMobile, normalizeMobile } from '../utils/phoneNormalize';
+import {
+  isImportableMobile,
+  isValidIndianMobile,
+  normalizeMobile,
+} from '../utils/phoneNormalize';
 
 const CONTACT_SELECT_BASE =
   'id, name, mobile, notes, call_status, last_called_at, last_outcome_notes, synced_to_device, created_at, updated_at';
@@ -245,7 +249,7 @@ export async function importTelecallingContacts(
         call_status: 'pending' as const,
       };
     })
-    .filter((row) => isValidIndianMobile(row.mobile));
+    .filter((row) => isImportableMobile(row.mobile));
 
   if (!prepared.length) {
     return { inserted: [], skippedExisting: 0 };

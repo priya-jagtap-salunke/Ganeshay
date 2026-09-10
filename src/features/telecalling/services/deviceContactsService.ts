@@ -2,6 +2,7 @@ import { Platform, Alert, Linking } from 'react-native';
 import * as Contacts from 'expo-contacts';
 import { CreateTelecallingContactInput } from '@/types/telecalling';
 import {
+  isImportableMobile,
   isValidIndianMobile,
   normalizeMobile,
 } from '../utils/phoneNormalize';
@@ -60,7 +61,6 @@ function hasContactsAccess(
 ): boolean {
   if (response.granted) return true;
   if (response.status === Contacts.PermissionStatus.GRANTED) return true;
-  // iOS 18+ may expose limited access on newer native modules.
   const privileges = (
     response as Contacts.PermissionResponse & {
       accessPrivileges?: 'all' | 'limited' | 'none';
@@ -91,7 +91,6 @@ export async function ensureContactsPermission(): Promise<boolean> {
     const current = await Contacts.getPermissionsAsync();
     if (hasContactsAccess(current)) return true;
 
-    // Permanently denied — must open Settings.
     if (
       current.status === Contacts.PermissionStatus.DENIED &&
       current.canAskAgain === false
@@ -139,7 +138,6 @@ function rawPhoneDigits(phone: Contacts.PhoneNumber): string {
   const parts = [phone.digits, phone.number]
     .map((value) => (value || '').trim())
     .filter(Boolean);
-  // Prefer the longest digit run after stripping non-digits.
   let best = '';
   for (const raw of parts) {
     const digits = raw.replace(/\D/g, '');
@@ -149,27 +147,26 @@ function rawPhoneDigits(phone: Contacts.PhoneNumber): string {
 }
 
 /**
- * Prefer digits (iOS) then formatted number — both normalize to last 10.
- * Also accepts +91 / 0-prefixed Indian mobiles from the phone book.
+ * Normalize a phone-book number to 10 digits for import.
+ * Accepts +91 / 0 prefixes and any 10-digit local number.
  */
 function phoneToMobile(phone: Contacts.PhoneNumber): string {
   const digits = rawPhoneDigits(phone);
   if (!digits) return '';
 
-  // Direct last-10 (covers +91XXXXXXXXXX and plain 10-digit).
-  const last10 = normalizeMobile(digits);
-  if (isValidIndianMobile(last10)) return last10;
-
-  // Strip leading 91 / 0 then re-check.
-  let rest = digits;
-  if (rest.startsWith('91') && rest.length > 10) {
-    rest = rest.slice(2);
-  } else if (rest.startsWith('0') && rest.length > 10) {
-    rest = rest.slice(1);
+  // Prefer Indian mobile shape when the full string is longer.
+  if (digits.startsWith('91') && digits.length >= 12) {
+    const local = digits.slice(2);
+    const mobile = normalizeMobile(local);
+    if (isImportableMobile(mobile)) return mobile;
   }
-  const normalized = normalizeMobile(rest);
-  if (isValidIndianMobile(normalized)) return normalized;
+  if (digits.startsWith('0') && digits.length >= 11) {
+    const mobile = normalizeMobile(digits.slice(1));
+    if (isImportableMobile(mobile)) return mobile;
+  }
 
+  const last10 = normalizeMobile(digits);
+  if (isImportableMobile(last10)) return last10;
   return last10;
 }
 
@@ -181,7 +178,6 @@ function isGenericContactName(name: string, mobile: string): boolean {
   return false;
 }
 
-/** When two phonebook entries share a mobile, keep the better display name. */
 function pickBetterOption(
   existing: DeviceContactOption,
   candidate: DeviceContactOption
@@ -191,44 +187,83 @@ function pickBetterOption(
     candidate.name,
     candidate.mobile
   );
+  // Prefer a name that isn't just the number.
   if (existingGeneric && !candidateGeneric) return candidate;
   if (!existingGeneric && candidateGeneric) return existing;
+  // Prefer Indian-mobile-shaped numbers when merging same key (shouldn't happen).
+  const existingIndian = isValidIndianMobile(existing.mobile);
+  const candidateIndian = isValidIndianMobile(candidate.mobile);
+  if (!existingIndian && candidateIndian) return candidate;
   if (candidate.name.trim().length > existing.name.trim().length) {
     return candidate;
   }
   return existing;
 }
 
+function rememberContacts(
+  byId: Map<string, Contacts.Contact>,
+  rows: Contacts.Contact[],
+  offsetLabel: number
+): void {
+  for (let i = 0; i < rows.length; i += 1) {
+    const contact = rows[i];
+    const id =
+      (contact.id && String(contact.id).trim()) ||
+      `offset-${offsetLabel}-row-${i}-${contactDisplayName(contact)}-${i}`;
+    const prev = byId.get(id);
+    if (!prev) {
+      byId.set(id, contact);
+      continue;
+    }
+    // Prefer the copy that has phone numbers.
+    const prevPhones = prev.phoneNumbers?.length ?? 0;
+    const nextPhones = contact.phoneNumbers?.length ?? 0;
+    if (nextPhones > prevPhones) {
+      byId.set(id, contact);
+    }
+  }
+}
+
 /**
- * Fetch all device contacts with reliable paging.
+ * Fetch every device contact the OS will give us.
  *
- * Android quirk: pageSize 0 ("get all") still sets hasNextPage=true when any
- * contacts exist, so we always page with an explicit pageSize and stop when a
- * page returns fewer rows than requested or hasNextPage is false.
+ * Android: pageSize 0 returns all contacts but sets hasNextPage incorrectly —
+ * we always keep the full `data` array from that call, then also page+merge.
  */
 async function fetchAllDeviceContacts(
   fields: Contacts.FieldType[]
 ): Promise<Contacts.Contact[]> {
   const byId = new Map<string, Contacts.Contact>();
 
-  const remember = (rows: Contacts.Contact[], offsetLabel: number) => {
-    for (let i = 0; i < rows.length; i += 1) {
-      const contact = rows[i];
-      const id =
-        (contact.id && String(contact.id).trim()) ||
-        `offset-${offsetLabel}-row-${i}`;
-      if (!byId.has(id)) {
-        byId.set(id, contact);
-      }
+  const tryFetch = async (
+    options: Contacts.ContactQuery,
+    label: number
+  ): Promise<void> => {
+    const page = await Contacts.getContactsAsync(options);
+    if (Array.isArray(page?.data) && page.data.length > 0) {
+      rememberContacts(byId, page.data, label);
     }
   };
 
-  const pageSize = 300;
+  // 1) Unpaged dump — primary path (docs: pageSize 0 / omitted = all contacts).
+  try {
+    await tryFetch({ fields }, 0);
+  } catch {
+    // continue
+  }
+
+  // 2) Unpaged with FirstName sort (some devices only fill phones when sorted).
+  try {
+    await tryFetch({ fields, sort: Contacts.SortTypes.FirstName }, 1);
+  } catch {
+    // continue
+  }
+
+  // 3) Explicit paging — merge anything the unpaged call missed.
+  const pageSize = 100;
   let pageOffset = 0;
   let guard = 0;
-  let pagedError: unknown = null;
-
-  while (guard < 500) {
+  while (guard < 1000) {
     guard += 1;
     let page: Contacts.ContactResponse;
     try {
@@ -238,8 +273,7 @@ async function fetchAllDeviceContacts(
         pageOffset,
         sort: Contacts.SortTypes.FirstName,
       });
-    } catch (error) {
-      pagedError = error;
+    } catch {
       break;
     }
 
@@ -247,35 +281,29 @@ async function fetchAllDeviceContacts(
     if (!Array.isArray(rows) || rows.length === 0) {
       break;
     }
-    remember(rows, pageOffset);
+    rememberContacts(byId, rows, 1000 + pageOffset);
 
-    // Stop when native says done, or when we got a short final page.
+    // Android hasNextPage with pageSize>0 is reliable; also stop on short page.
     if (!page.hasNextPage || rows.length < pageSize) {
       break;
     }
     pageOffset += pageSize;
   }
 
-  if (byId.size > 0) {
-    return [...byId.values()];
-  }
-
-  // Fallback: unpaged dump (still useful if paging failed / empty quirk).
-  try {
-    const all = await Contacts.getContactsAsync({
-      fields,
-      sort: Contacts.SortTypes.FirstName,
-    });
-    if (Array.isArray(all?.data) && all.data.length > 0) {
-      remember(all.data, 0);
+  // 4) iOS: also pull raw (non-unified) contacts — can surface more numbers.
+  if (Platform.OS === 'ios') {
+    try {
+      await tryFetch(
+        {
+          fields,
+          rawContacts: true,
+          sort: Contacts.SortTypes.FirstName,
+        },
+        5000
+      );
+    } catch {
+      // optional
     }
-  } catch (error) {
-    if (pagedError) throw pagedError;
-    throw error;
-  }
-
-  if (byId.size === 0 && pagedError) {
-    throw pagedError;
   }
 
   return [...byId.values()];
@@ -294,7 +322,7 @@ export async function getExistingDeviceMobileSet(): Promise<Set<string>> {
   for (const contact of data) {
     for (const phone of contact.phoneNumbers ?? []) {
       const digits = phoneToMobile(phone);
-      if (digits.length === 10) {
+      if (isImportableMobile(digits)) {
         existing.add(digits);
       }
     }
@@ -302,7 +330,7 @@ export async function getExistingDeviceMobileSet(): Promise<Set<string>> {
   return existing;
 }
 
-/** One selectable phone-book row (one valid Indian mobile). */
+/** One selectable phone-book row (one importable 10-digit mobile). */
 export interface DeviceContactOption {
   /** Stable key = normalized 10-digit mobile. */
   key: string;
@@ -322,7 +350,7 @@ export interface LoadDeviceContactOptionsResult {
 
 /**
  * Load device address-book entries as selectable options for in-app multi-select.
- * Does not import anything — only valid Indian mobiles, deduped by last 10 digits.
+ * Shows every phone-book contact that has a usable 10-digit number.
  */
 export async function loadDeviceContactOptions(): Promise<LoadDeviceContactOptionsResult> {
   if (!isDeviceContactsSupported()) {
@@ -353,7 +381,7 @@ export async function loadDeviceContactOptions(): Promise<LoadDeviceContactOptio
     const message =
       error instanceof Error ? error.message : 'Could not read phone contacts';
     throw new Error(
-      `${message}. If this persists, open Settings → Ganeshay → Contacts and allow access, then reopen the app.`
+      `${message}. Open Settings → Ganeshay → Contacts, allow Full Access, then reopen the app.`
     );
   }
 
@@ -366,7 +394,10 @@ export async function loadDeviceContactOptions(): Promise<LoadDeviceContactOptio
     const phones = [...(contact.phoneNumbers ?? [])].sort((a, b) => {
       if (a.isPrimary && !b.isPrimary) return -1;
       if (!a.isPrimary && b.isPrimary) return 1;
-      return 0;
+      // Prefer numbers that look like Indian mobiles.
+      const aScore = isValidIndianMobile(phoneToMobile(a)) ? 1 : 0;
+      const bScore = isValidIndianMobile(phoneToMobile(b)) ? 1 : 0;
+      return bScore - aScore;
     });
 
     if (phones.length === 0) {
@@ -374,16 +405,15 @@ export async function loadDeviceContactOptions(): Promise<LoadDeviceContactOptio
       continue;
     }
 
+    let addedForContact = false;
     for (const phone of phones) {
       const raw = rawPhoneDigits(phone);
       if (!raw) {
-        skippedInvalid += 1;
         continue;
       }
 
       const mobile = phoneToMobile(phone);
-      if (!isValidIndianMobile(mobile)) {
-        skippedInvalid += 1;
+      if (!isImportableMobile(mobile)) {
         continue;
       }
 
@@ -398,10 +428,16 @@ export async function loadDeviceContactOptions(): Promise<LoadDeviceContactOptio
       if (existing) {
         skippedDuplicateOnDevice += 1;
         byMobile.set(mobile, pickBetterOption(existing, candidate));
+        addedForContact = true;
         continue;
       }
 
       byMobile.set(mobile, candidate);
+      addedForContact = true;
+    }
+
+    if (!addedForContact) {
+      skippedInvalid += 1;
     }
   }
 
@@ -425,7 +461,7 @@ export function deviceOptionsToImportInputs(
 
   for (const opt of options) {
     const mobile = normalizeMobile(opt.mobile);
-    if (!isValidIndianMobile(mobile)) continue;
+    if (!isImportableMobile(mobile)) continue;
 
     const name = (opt.name || '').trim() || `Contact ${mobile}`;
     const next: CreateTelecallingContactInput = {
@@ -468,8 +504,6 @@ export interface SyncToDeviceResult {
 
 /**
  * Add contacts to the device address book when the mobile is not already present.
- * Duplicate detection: normalize to last 10 digits and compare against all device phone numbers.
- * Notes are omitted on iOS (requires a special Apple entitlement).
  */
 export async function syncContactsToDevice(
   contacts: SyncContactInput[]
@@ -493,7 +527,7 @@ export async function syncContactsToDevice(
 
   for (const contact of contacts) {
     const mobile = normalizeMobile(contact.mobile);
-    if (!isValidIndianMobile(mobile)) {
+    if (!isImportableMobile(mobile)) {
       failed += 1;
       continue;
     }

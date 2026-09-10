@@ -22,6 +22,14 @@ export function isValidIndianMobile(phone: string): boolean {
 }
 
 /**
+ * Phone-book import: any 10-digit number (after stripping +91 / formatting).
+ * Broader than isValidIndianMobile so SIM / landline-style entries still appear.
+ */
+export function isImportableMobile(phone: string): boolean {
+  return normalizeMobile(phone).length === 10;
+}
+
+/**
  * Partial match of a search string against a stored 10-digit mobile.
  * Ignores spaces/+ and common Indian prefixes (91, 0). Empty digit query → false
  * (so name-only search does not match every number via "".includes).
