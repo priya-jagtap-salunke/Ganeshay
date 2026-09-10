@@ -439,7 +439,7 @@ export function TelecallingPanel() {
     if (!contacts.length) {
       Alert.alert(
         'No contacts selected',
-        'Select at least one contact with a valid 10-digit Indian mobile.'
+        'Select at least one contact with a valid 10-digit phone number.'
       );
       return;
     }
