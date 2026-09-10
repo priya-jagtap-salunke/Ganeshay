@@ -201,6 +201,8 @@ export function DeviceContactsPickerModal({
     return 'No contacts found. Allow Contacts permission (Full Access on iPhone), then tap Reload.';
   })();
 
+  const validMobileCount = options.length;
+
   return (
     <Modal
       visible={visible}
@@ -208,38 +210,33 @@ export function DeviceContactsPickerModal({
       onRequestClose={loading ? undefined : onDismiss}
       presentationStyle={Platform.OS === 'ios' ? 'fullScreen' : undefined}
     >
-      <View
-        style={[
-          styles.container,
-          {
-            paddingTop: Math.max(insets.top, spacing.md),
-            paddingBottom: Math.max(insets.bottom, spacing.sm),
-          },
-        ]}
-      >
-        <View style={styles.header}>
-          <Text style={styles.title}>Select phone contacts</Text>
+      <View style={styles.container}>
+        <View
+          style={[
+            styles.header,
+            { paddingTop: Math.max(insets.top, spacing.sm) },
+          ]}
+        >
+          <Text style={styles.title} numberOfLines={1}>
+            Select phone contacts
+          </Text>
           <IconButton
             icon="close"
+            size={22}
             onPress={loading ? undefined : onDismiss}
             iconColor={colors.white}
             disabled={loading}
+            style={styles.closeIcon}
+            accessibilityLabel="Close"
           />
         </View>
 
-        <View style={styles.body}>
-          <Text style={styles.subtitle}>
-            Contacts are selected automatically. Tap Import to add them to
-            tele-calling. Uncheck any you want to skip.
-          </Text>
-
-          {accessLimited ? (
-            <Text style={styles.limitedHint}>
-              Limited Contacts access — only contacts you shared with Ganeshay
-              appear here.
-            </Text>
-          ) : null}
-
+        <View
+          style={[
+            styles.body,
+            { paddingBottom: Math.max(insets.bottom, spacing.sm) },
+          ]}
+        >
           {loading ? (
             <View style={styles.centered}>
               <ActivityIndicator size="large" color={colors.royalRed} />
@@ -251,46 +248,45 @@ export function DeviceContactsPickerModal({
               <AppButton
                 variant="primary"
                 onPress={handleReload}
-                style={styles.closeBtn}
+                style={styles.errorBtn}
               >
                 Reload
               </AppButton>
               <AppButton
                 variant="outline"
                 onPress={onDismiss}
-                style={styles.closeBtn}
+                style={styles.errorBtn}
               >
                 Close
               </AppButton>
             </View>
           ) : (
             <>
+              <Text style={styles.subtitle}>
+                Choose who to add to tele-calling. Only selected contacts are
+                imported. Duplicate numbers already in your list are skipped.
+              </Text>
+
               <Searchbar
                 placeholder="Search name or number"
                 value={query}
                 onChangeText={setQuery}
                 style={styles.search}
                 inputStyle={styles.searchInput}
+                iconColor={colors.gray}
               />
 
               <View style={styles.toolbar}>
-                <Text style={styles.toolbarLabel}>
+                <Text style={styles.toolbarLabel} numberOfLines={1}>
                   {selectedCount} selected
-                  {options.length
-                    ? ` · ${options.length} from phone book`
-                    : ''}
-                  {deviceContactCount > options.length
-                    ? ` · ${deviceContactCount} contacts read`
+                  {validMobileCount > 0
+                    ? ` · ${validMobileCount} with valid mobile`
                     : ''}
                 </Text>
                 {filtered.length > 0 ? (
                   <Pressable onPress={toggleSelectAllFiltered} hitSlop={8}>
                     <Text style={styles.selectAll}>
-                      {allFilteredSelected
-                        ? 'Clear visible'
-                        : query.trim()
-                          ? 'Select all visible'
-                          : 'Select all'}
+                      {allFilteredSelected ? 'Clear all' : 'Select all'}
                     </Text>
                   </Pressable>
                 ) : options.length === 0 ? (
@@ -320,7 +316,6 @@ export function DeviceContactsPickerModal({
                       onPress={() => toggleKey(item.key)}
                       style={({ pressed }) => [
                         styles.row,
-                        checked && styles.rowSelected,
                         pressed && styles.rowPressed,
                       ]}
                       accessibilityRole="checkbox"
@@ -338,7 +333,9 @@ export function DeviceContactsPickerModal({
                         <Text style={styles.rowName} numberOfLines={1}>
                           {item.name}
                         </Text>
-                        <Text style={styles.rowMobile}>{item.mobile}</Text>
+                        <Text style={styles.rowMobile} numberOfLines={1}>
+                          {item.mobile}
+                        </Text>
                       </View>
                     </Pressable>
                   );
@@ -358,7 +355,7 @@ export function DeviceContactsPickerModal({
                   disabled={selectedCount === 0 || options.length === 0}
                   style={styles.actionBtn}
                 >
-                  {selectedCount > 0 ? `Import ${selectedCount}` : 'Import'}
+                  Import
                 </AppButton>
               </View>
             </>
@@ -384,40 +381,44 @@ const styles = StyleSheet.create({
   },
   title: {
     fontSize: 20,
-    fontWeight: '800',
+    fontWeight: '700',
     color: colors.white,
     flex: 1,
+    paddingRight: spacing.sm,
+  },
+  closeIcon: {
+    margin: 0,
   },
   body: {
     flex: 1,
-    padding: spacing.md,
+    paddingHorizontal: spacing.md,
+    paddingTop: spacing.md,
+    backgroundColor: colors.warmIvory,
   },
   subtitle: {
     fontSize: 14,
     color: colors.textSecondary,
-    marginBottom: spacing.sm,
+    marginBottom: spacing.md,
     lineHeight: 20,
   },
-  limitedHint: {
-    fontSize: 13,
-    color: colors.royalRed,
-    marginBottom: spacing.sm,
-    lineHeight: 18,
-  },
   search: {
-    marginBottom: spacing.xs,
+    marginBottom: spacing.sm,
     backgroundColor: colors.white,
+    borderRadius: radius.md,
     elevation: 0,
+    shadowOpacity: 0,
   },
   searchInput: {
     minHeight: 40,
+    fontSize: 15,
   },
   toolbar: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: spacing.xs,
+    marginBottom: spacing.sm,
     minHeight: touchTarget.min / 1.5,
+    gap: spacing.sm,
   },
   toolbarLabel: {
     fontSize: 13,
@@ -442,20 +443,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: colors.white,
     borderRadius: radius.lg,
-    paddingVertical: spacing.xs,
+    paddingVertical: spacing.sm,
     paddingRight: spacing.md,
     paddingLeft: spacing.xs,
     marginBottom: spacing.sm,
-    borderWidth: 1,
-    borderColor: colors.goldLight,
     minHeight: touchTarget.min,
   },
-  rowSelected: {
-    borderColor: colors.royalRed,
-    backgroundColor: colors.warmIvory,
-  },
   rowPressed: {
-    opacity: 0.9,
+    opacity: 0.92,
   },
   rowText: {
     flex: 1,
@@ -476,7 +471,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: spacing.sm,
     marginTop: spacing.sm,
-    zIndex: 2,
   },
   actionBtn: {
     flex: 1,
@@ -493,7 +487,8 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     marginTop: spacing.sm,
   },
-  closeBtn: {
+  errorBtn: {
     marginTop: spacing.md,
+    alignSelf: 'stretch',
   },
 });
