@@ -11,7 +11,6 @@ import {
   showWhatsAppMissingAlert,
   type WhatsAppAppKind,
 } from '@/features/receipt/utils/whatsappApp';
-import { waitForWhatsAppReady } from '@/features/receipt/utils/whatsappTiming';
 import { shareWhatsAppMedia } from '@/features/receipt/utils/whatsappMediaShare';
 import { buildStallDetailsWhatsAppMessage } from '@/features/telecalling/utils/stallDetailsWhatsAppMessage';
 import {
@@ -224,19 +223,19 @@ async function shareCatalogPdfToContact(params: {
     filename,
     // Never caption — text path can drop the PDF.
     message: undefined,
+    // jid / whatsAppNumber → open THIS contact with the PDF attached.
     targetPhone: true,
-    // Keep the prepared catalogue file as-is (no multi-MB re-copy).
-    useInternalStorage: false,
-    // Large Settings PDFs need longer than the default media timeout.
-    timeoutMs: 90_000,
+    // Required so WhatsApp receives a readable content:// FileProvider URI.
+    // false left the PDF unreadable and the send looked like it "did nothing".
+    useInternalStorage: true,
+    timeoutMs: 120_000,
   });
 }
 
 /**
  * Tele-Messaging → Send catalogue:
- * 1) Uses the complete Catalogue PDF already saved in Settings
- * 2) Opens WhatsApp directly to the viewed contact
- * 3) Attaches that PDF into the same chat (no manual contact search)
+ * Shares the complete Catalogue PDF from Settings as a real .pdf into the
+ * viewed contact's WhatsApp chat (no manual contact search).
  */
 export async function shareCatalogOnWhatsApp(
   recipient: TeleMessagingShareRecipient,
@@ -298,11 +297,8 @@ export async function shareCatalogOnWhatsApp(
   }
 
   try {
-    // 1) Open THIS contact's chat first — no Send-to picker / search.
-    await openDeviceWhatsAppApp(phone, '', appKind);
-    await waitForWhatsAppReady();
-
-    // 2) Attach the complete Settings catalogue PDF into that same chat.
+    // Share PDF + target contact in one step. Do NOT open WhatsApp first —
+    // leaving the app backgrounded drops the follow-up PDF attach on Android/iOS.
     await shareCatalogPdfToContact({
       pdfUri: documentUri,
       phone,
@@ -314,8 +310,6 @@ export async function shareCatalogOnWhatsApp(
     const alternate: WhatsAppAppKind =
       appKind === 'consumer' ? 'business' : 'consumer';
     try {
-      await openDeviceWhatsAppApp(phone, '', alternate);
-      await waitForWhatsAppReady();
       await shareCatalogPdfToContact({
         pdfUri: documentUri,
         phone,
@@ -325,6 +319,20 @@ export async function shareCatalogOnWhatsApp(
       return;
     } catch (retryError) {
       if (isUserCancelledShare(retryError)) return;
+      // Last resort: system share sheet with the real PDF (still a document).
+      try {
+        const Sharing = await import('expo-sharing');
+        if (await Sharing.isAvailableAsync()) {
+          await Sharing.shareAsync(documentUri, {
+            mimeType: 'application/pdf',
+            dialogTitle: 'Share catalogue PDF',
+            UTI: 'com.adobe.pdf',
+          });
+          return;
+        }
+      } catch (shareSheetError) {
+        if (isUserCancelledShare(shareSheetError)) return;
+      }
       console.warn('Catalogue WhatsApp share failed', retryError);
       Alert.alert(
         'WhatsApp Failed',
