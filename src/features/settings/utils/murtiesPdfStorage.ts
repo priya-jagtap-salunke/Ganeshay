@@ -38,16 +38,32 @@ function estimateBase64Bytes(base64: string): number {
 }
 
 async function assertPdfMagic(fileUri: string): Promise<void> {
-  const head = await FileSystem.readAsStringAsync(fileUri, {
-    encoding: FileSystem.EncodingType.Base64,
-    length: 8,
-    position: 0,
-  });
-  // "%PDF" in base64 starts with "JVBERi"
-  if (!head || !head.startsWith('JVBERi')) {
-    throw new Error(
-      'Catalogue file is not a valid PDF. Re-upload the PDF in Settings.'
-    );
+  const info = await FileSystem.getInfoAsync(fileUri);
+  // length/position is not honored on every device — reading a 50–150 MB
+  // catalogue as base64 OOMs and makes Save/Send look like they "failed".
+  if (typeof info.size === 'number' && info.size > 256_000) {
+    return;
+  }
+  try {
+    const head = await FileSystem.readAsStringAsync(fileUri, {
+      encoding: FileSystem.EncodingType.Base64,
+      length: 8,
+      position: 0,
+    });
+    // "%PDF" in base64 starts with "JVBERi"
+    if (head && head.length >= 6 && !head.startsWith('JVBERi')) {
+      throw new Error(
+        'Catalogue file is not a valid PDF. Re-upload the PDF in Settings.'
+      );
+    }
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      error.message.toLowerCase().includes('not a valid pdf')
+    ) {
+      throw error;
+    }
+    // Ignore platforms that cannot peek at file headers.
   }
 }
 
@@ -159,7 +175,7 @@ export async function persistMurtiesPdf(
   if (
     expectedSize != null &&
     typeof saved.size === 'number' &&
-    saved.size !== expectedSize
+    saved.size < expectedSize * 0.9
   ) {
     try {
       await FileSystem.deleteAsync(dest, { idempotent: true });
@@ -218,12 +234,82 @@ export async function removeMurtiesPdf(storedUri: string | null): Promise<void> 
 }
 
 /**
+ * Canonical on-disk path for the Settings catalogue (native).
+ * Survives URI drift in AsyncStorage as long as the file was saved once.
+ */
+export function getCanonicalMurtiesPdfUri(): string | null {
+  if (Platform.OS === 'web') return null;
+  const baseDir = FileSystem.documentDirectory;
+  if (!baseDir) return null;
+  const path = `${baseDir}${PDF_FILENAME}`;
+  return path.startsWith('file://') ? path : `file://${path}`;
+}
+
+/**
+ * Resolve the Settings catalogue URI to a real existing file.
+ * Prefers the stored URI; falls back to the canonical document file.
+ */
+export async function resolvePersistedMurtiesPdfUri(
+  storedUri: string | null | undefined
+): Promise<string | null> {
+  if (Platform.OS === 'web') {
+    return storedUri?.trim() ? storedUri : null;
+  }
+
+  if (storedUri?.startsWith('data:')) {
+    return storedUri;
+  }
+
+  if (storedUri) {
+    try {
+      const info = await FileSystem.getInfoAsync(storedUri);
+      if (
+        info.exists &&
+        !info.isDirectory &&
+        typeof info.size === 'number' &&
+        info.size >= 64
+      ) {
+        return storedUri.startsWith('file://')
+          ? storedUri
+          : `file://${storedUri}`;
+      }
+    } catch {
+      // fall through to canonical
+    }
+  }
+
+  const canonical = getCanonicalMurtiesPdfUri();
+  if (!canonical) return null;
+  try {
+    const info = await FileSystem.getInfoAsync(canonical);
+    if (
+      info.exists &&
+      !info.isDirectory &&
+      typeof info.size === 'number' &&
+      info.size >= 64
+    ) {
+      return canonical;
+    }
+  } catch {
+    // missing
+  }
+  return null;
+}
+
+/**
  * Resolve the Settings catalogue to a real on-disk .pdf URI for WhatsApp.
  * Always prefers the complete persisted Settings file.
  */
 export async function ensureShareableMurtiesPdfUri(
   storedUri: string
 ): Promise<string> {
+  const resolved = await resolvePersistedMurtiesPdfUri(storedUri);
+  if (!resolved) {
+    throw new Error(
+      'Catalogue PDF was not found. Upload it again in Settings.'
+    );
+  }
+
   const verifyPdf = async (fileUri: string): Promise<string> => {
     const normalized = fileUri.startsWith('file://')
       ? fileUri
@@ -239,23 +325,14 @@ export async function ensureShareableMurtiesPdfUri(
         'Catalogue PDF is empty or incomplete. Upload the full PDF in Settings.'
       );
     }
-    try {
-      await assertPdfMagic(normalized);
-    } catch (error) {
-      if (
-        error instanceof Error &&
-        error.message.toLowerCase().includes('not a valid pdf')
-      ) {
-        throw error;
-      }
-      // Some platforms ignore length/position — size check above still applies.
-    }
+    await assertPdfMagic(normalized);
     return normalized;
   };
 
-  // Already a local .pdf — share the Settings file in place (no multi-MB copy).
-  if (!storedUri.startsWith('data:')) {
-    const info = await FileSystem.getInfoAsync(storedUri);
+  // Already a local .pdf — share from a cache/Download copy so RN Share's
+  // FileProvider (cache-path only) can expose it to WhatsApp.
+  if (!resolved.startsWith('data:')) {
+    const info = await FileSystem.getInfoAsync(resolved);
     if (!info.exists || info.isDirectory) {
       throw new Error(
         'Catalogue PDF was not found. Upload it again in Settings.'
@@ -266,11 +343,7 @@ export async function ensureShareableMurtiesPdfUri(
         'Catalogue PDF is empty or incomplete. Upload the full PDF in Settings.'
       );
     }
-    if (/\.pdf$/i.test(storedUri)) {
-      return verifyPdf(storedUri);
-    }
 
-    // Force a .pdf path so WhatsApp never sees a wrong extension.
     const cacheDir = FileSystem.cacheDirectory;
     if (!cacheDir) {
       throw new Error('File storage is unavailable on this device.');
@@ -282,21 +355,33 @@ export async function ensureShareableMurtiesPdfUri(
       // may exist
     }
     const dest = `${downloadDir}murties-catalog-share.pdf`;
-    try {
-      await FileSystem.deleteAsync(dest, { idempotent: true });
-    } catch {
-      // ignore
-    }
-    await FileSystem.copyAsync({ from: storedUri, to: dest });
-    const copied = await FileSystem.getInfoAsync(dest);
-    if (
+
+    // Reuse share copy when it already matches the Settings file size.
+    const existing = await FileSystem.getInfoAsync(dest);
+    const sameSize =
+      existing.exists &&
+      !existing.isDirectory &&
+      typeof existing.size === 'number' &&
       typeof info.size === 'number' &&
-      typeof copied.size === 'number' &&
-      copied.size !== info.size
-    ) {
-      throw new Error(
-        'Could not prepare the complete catalogue PDF. Try again.'
-      );
+      existing.size === info.size;
+
+    if (!sameSize) {
+      try {
+        await FileSystem.deleteAsync(dest, { idempotent: true });
+      } catch {
+        // ignore
+      }
+      await FileSystem.copyAsync({ from: resolved, to: dest });
+      const copied = await FileSystem.getInfoAsync(dest);
+      if (
+        typeof info.size === 'number' &&
+        typeof copied.size === 'number' &&
+        copied.size < info.size * 0.9
+      ) {
+        throw new Error(
+          'Could not prepare the complete catalogue PDF. Try again.'
+        );
+      }
     }
     return verifyPdf(dest);
   }
@@ -314,7 +399,7 @@ export async function ensureShareableMurtiesPdfUri(
   }
 
   const dest = `${downloadDir}murties-catalog-share.pdf`;
-  const base64 = storedUri.split(',')[1] ?? '';
+  const base64 = resolved.split(',')[1] ?? '';
   if (!base64) {
     throw new Error('Catalogue PDF data is empty. Upload it again in Settings.');
   }
@@ -332,18 +417,6 @@ export async function ensureShareableMurtiesPdfUri(
   await FileSystem.writeAsStringAsync(dest, base64, {
     encoding: FileSystem.EncodingType.Base64,
   });
-
-  const expected = estimateBase64Bytes(base64);
-  const written = await FileSystem.getInfoAsync(dest);
-  if (
-    typeof written.size === 'number' &&
-    written.size !== expected &&
-    Math.abs(written.size - expected) > 4
-  ) {
-    throw new Error(
-      'Catalogue PDF did not materialize completely. Upload it again in Settings.'
-    );
-  }
 
   return verifyPdf(dest);
 }

@@ -149,14 +149,16 @@ export function TeleMessagingPanel() {
           }
           void (async () => {
             try {
-              await shareCatalogOnWhatsApp(
+              const shared = await shareCatalogOnWhatsApp(
                 {
                   mobile: contact.mobile,
                   customerName: contact.name,
                 },
                 settings
               );
-              await markSent(contact, 'catalog');
+              if (shared) {
+                await markSent(contact, 'catalog');
+              }
             } catch (error) {
               if (!getErrorMessage(error).toLowerCase().includes('cancel')) {
                 Alert.alert(

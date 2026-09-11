@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { StyleSheet, View, Alert, Platform } from 'react-native';
 import { Text } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
@@ -7,6 +7,7 @@ import { AppButton } from '@/components/ui/AppButton';
 import {
   persistMurtiesPdf,
   removeMurtiesPdf,
+  resolvePersistedMurtiesPdfUri,
   MAX_NATIVE_MURTIES_PDF_BYTES,
 } from '../utils/murtiesPdfStorage';
 import { colors } from '@/theme/colors';
@@ -29,6 +30,21 @@ export function MurtiesPdfPicker({
   onPdfChange,
 }: MurtiesPdfPickerProps) {
   const [picking, setPicking] = useState(false);
+
+  // Heal Settings URI from the canonical on-disk file after restart.
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const resolved = await resolvePersistedMurtiesPdfUri(pdfUri);
+      if (cancelled || !resolved || resolved === pdfUri) return;
+      onPdfChange(resolved, pdfName || 'Ganesha_Murties_Catalog.pdf');
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // Only re-check when the stored URI changes — avoid update loops.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pdfUri]);
 
   const handlePickPdf = async () => {
     setPicking(true);
