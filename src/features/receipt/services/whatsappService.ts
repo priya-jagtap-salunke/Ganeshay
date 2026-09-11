@@ -18,6 +18,7 @@ import {
   showWhatsAppMissingAlert,
   type WhatsAppAppKind,
 } from '../utils/whatsappApp';
+import { shareWhatsAppMedia } from '../utils/whatsappMediaShare';
 import { downloadMurtiPhotoOnWeb } from '@/features/bookings/utils/murtiPhotoStorage';
 
 export type ShareReceiptWhatsAppOptions = {
@@ -111,27 +112,6 @@ async function ensureShareablePdfUri(
   return destPath.startsWith('file://') ? destPath : `file://${destPath}`;
 }
 
-/**
- * Share the receipt as a real PDF via the system share sheet (same approach
- * that fixed blank catalogue PDFs). User picks WhatsApp to attach the file.
- */
-async function shareReceiptPdfViaSystemSheet(
-  pdfUri: string,
-  bookingNumber: string
-): Promise<void> {
-  const Sharing = await import('expo-sharing');
-  const available = await Sharing.isAvailableAsync();
-  if (!available) {
-    throw new Error('Sharing is not available on this device.');
-  }
-
-  await Sharing.shareAsync(pdfUri, {
-    mimeType: 'application/pdf',
-    dialogTitle: `Share Receipt ${bookingNumber}`,
-    UTI: 'com.adobe.pdf',
-  });
-}
-
 function isUserCancelledShare(error: unknown): boolean {
   const msg = (
     error instanceof Error ? error.message : String(error)
@@ -143,6 +123,107 @@ function isUserCancelledShare(error: unknown): boolean {
     msg.includes('ecancelled') ||
     msg.includes('ecanceled')
   );
+}
+
+/**
+ * Share the View Receipt PDF as a real .pdf into THIS booking contact's chat.
+ * Uses WhatsApp jid targeting — no system share sheet / contact picker.
+ */
+export async function shareNewBookingInvoicePdfOnWhatsApp(
+  booking: Booking,
+  pdfUri: string
+): Promise<void> {
+  const phone = validateBookingWhatsAppTarget(booking);
+  if (!phone) return;
+
+  if (!pdfUri) {
+    Alert.alert(
+      'Receipt PDF Failed',
+      'Receipt PDF is missing. Please try again.'
+    );
+    return;
+  }
+
+  if (Platform.OS === 'web') {
+    downloadPdfOnWeb(pdfUri, booking.booking_number);
+    Alert.alert(
+      'Receipt PDF Downloaded',
+      'Attach the downloaded receipt PDF in WhatsApp.'
+    );
+    const whatsAppUrl = getWhatsAppWebUrl(phone, '');
+    if (typeof window !== 'undefined') {
+      window.open(whatsAppUrl, '_blank', 'noopener,noreferrer');
+      return;
+    }
+    await Linking.openURL(whatsAppUrl);
+    return;
+  }
+
+  const appKind = await resolveInstalledWhatsAppApp();
+  if (!appKind) {
+    showWhatsAppMissingAlert();
+    return;
+  }
+
+  let shareablePdfUri: string;
+  try {
+    shareablePdfUri = await ensureShareablePdfUri(
+      pdfUri,
+      booking.booking_number
+    );
+  } catch (error) {
+    console.warn('Could not prepare receipt PDF for WhatsApp', error);
+    Alert.alert(
+      'Receipt PDF Failed',
+      getErrorMessage(error) ||
+        'Could not prepare the receipt PDF. Please try again.'
+    );
+    return;
+  }
+
+  const pdfFilename = `Receipt_${booking.booking_number}.pdf`;
+
+  try {
+    await shareWhatsAppMedia({
+      title: `Receipt ${booking.booking_number}`,
+      phone,
+      appKind,
+      url: shareablePdfUri,
+      type: 'application/pdf',
+      filename: pdfFilename,
+      message: undefined,
+      targetPhone: true,
+      useInternalStorage: false,
+      timeoutMs: 60_000,
+    });
+  } catch (error) {
+    if (isUserCancelledShare(error)) return;
+    const alternate: WhatsAppAppKind =
+      appKind === 'consumer' ? 'business' : 'consumer';
+    try {
+      await shareWhatsAppMedia({
+        title: `Receipt ${booking.booking_number}`,
+        phone,
+        appKind: alternate,
+        url: shareablePdfUri,
+        type: 'application/pdf',
+        filename: pdfFilename,
+        message: undefined,
+        targetPhone: true,
+        useInternalStorage: false,
+        timeoutMs: 60_000,
+      });
+      return;
+    } catch (retryError) {
+      if (isUserCancelledShare(retryError)) return;
+      console.warn('Receipt PDF share failed', retryError);
+      Alert.alert(
+        'Share Invoice PDF',
+        getErrorMessage(error) ||
+          'Could not share the receipt PDF. Please try again.'
+      );
+    }
+  }
 }
 
 async function shareOnWeb(
@@ -283,71 +364,4 @@ export async function shareNewBookingDetailsOnWhatsApp(
   }
 
   await openDeviceWhatsAppApp(phone, message, appKind);
-}
-
-/**
- * Share the View Receipt PDF (from generateReceiptPdf) as a real .pdf document.
- * Uses the system share sheet so WhatsApp receives application/pdf — not a
- * blank/corrupt attach from the direct WhatsApp share path.
- */
-export async function shareNewBookingInvoicePdfOnWhatsApp(
-  booking: Booking,
-  pdfUri: string
-): Promise<void> {
-  const phone = validateBookingWhatsAppTarget(booking);
-  if (!phone) return;
-
-  if (!pdfUri) {
-    Alert.alert(
-      'Receipt PDF Failed',
-      'Receipt PDF is missing. Please try again.'
-    );
-    return;
-  }
-
-  if (Platform.OS === 'web') {
-    downloadPdfOnWeb(pdfUri, booking.booking_number);
-    Alert.alert(
-      'Receipt PDF Downloaded',
-      'Attach the downloaded receipt PDF in WhatsApp.'
-    );
-    const whatsAppUrl = getWhatsAppWebUrl(phone, '');
-    if (typeof window !== 'undefined') {
-      window.open(whatsAppUrl, '_blank', 'noopener,noreferrer');
-      return;
-    }
-    await Linking.openURL(whatsAppUrl);
-    return;
-  }
-
-  let shareablePdfUri: string;
-  try {
-    shareablePdfUri = await ensureShareablePdfUri(
-      pdfUri,
-      booking.booking_number
-    );
-  } catch (error) {
-    console.warn('Could not prepare receipt PDF for WhatsApp', error);
-    Alert.alert(
-      'Receipt PDF Failed',
-      getErrorMessage(error) ||
-        'Could not prepare the receipt PDF. Please try again.'
-    );
-    return;
-  }
-
-  try {
-    await shareReceiptPdfViaSystemSheet(
-      shareablePdfUri,
-      booking.booking_number
-    );
-  } catch (error) {
-    if (isUserCancelledShare(error)) return;
-    console.warn('Receipt PDF share failed', error);
-    Alert.alert(
-      'Share Invoice PDF',
-      getErrorMessage(error) ||
-        'Could not share the receipt PDF. Please try again.'
-    );
-  }
 }
