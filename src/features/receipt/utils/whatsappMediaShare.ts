@@ -123,8 +123,44 @@ async function prepareShareableFileUrl(
   filename?: string
 ): Promise<string> {
   const normalized = ensureFileUrl(url);
+  const isPdf = type === 'application/pdf' || isPdfShare(type, normalized);
+
+  // data:application/pdf → real on-disk .pdf (WhatsApp needs a file, not a blank shell).
   if (normalized.startsWith('data:')) {
-    return normalized;
+    if (!isPdf && !normalized.toLowerCase().startsWith('data:application/pdf')) {
+      return normalized;
+    }
+    const comma = normalized.indexOf(',');
+    const base64 = comma >= 0 ? normalized.slice(comma + 1) : '';
+    if (!base64 || base64.length < 64 || !base64.startsWith('JVBERi')) {
+      throw new Error('Share file is empty or incomplete.');
+    }
+    const cacheDir = FileSystem.cacheDirectory;
+    if (!cacheDir) {
+      return normalized;
+    }
+    const downloadDir = `${cacheDir}Download/`;
+    try {
+      await FileSystem.makeDirectoryAsync(downloadDir, { intermediates: true });
+    } catch {
+      // may exist
+    }
+    const base =
+      (filename || 'document')
+        .replace(/\.pdf$/i, '')
+        .replace(/[^\w.-]+/g, '_') || 'document';
+    const dest = `${downloadDir}${base}_${Date.now()}.pdf`;
+    await FileSystem.writeAsStringAsync(dest, base64, {
+      encoding: FileSystem.EncodingType.Base64,
+    });
+    const written = await FileSystem.getInfoAsync(dest);
+    if (
+      !written.exists ||
+      (typeof written.size === 'number' && written.size < 64)
+    ) {
+      throw new Error('Could not prepare file for WhatsApp share.');
+    }
+    return dest.startsWith('file://') ? dest : `file://${dest}`;
   }
 
   const fileUri = normalized;
@@ -135,8 +171,6 @@ async function prepareShareableFileUrl(
   if (typeof info.size === 'number' && info.size < 64) {
     throw new Error('Share file is empty or incomplete.');
   }
-
-  const isPdf = type === 'application/pdf' || isPdfShare(type, fileUri);
 
   // Already a real local PDF — share in place (no multi-MB copy).
   if (isPdf && /\.pdf$/i.test(fileUri)) {

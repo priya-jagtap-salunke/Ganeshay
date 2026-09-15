@@ -27,6 +27,8 @@ export function SettingsForm() {
     phone,
     address,
     mapLink,
+    instagramLink,
+    websiteLink,
     stallDescription,
     enquiryMessage,
     telecallingBannerUri,
@@ -42,6 +44,8 @@ export function SettingsForm() {
     phone,
     address,
     mapLink: mapLink ?? '',
+    instagramLink: instagramLink ?? 'https://www.instagram.com/bappaji_com',
+    websiteLink: websiteLink ?? 'https://bappaji.com/',
     stallDescription:
       stallDescription ??
       'Eco-friendly Shadu Mati Shree Ganesha Murti stall with various sizes available.',
@@ -63,6 +67,8 @@ export function SettingsForm() {
       phone,
       address,
       mapLink: mapLink ?? '',
+      instagramLink: instagramLink ?? 'https://www.instagram.com/bappaji_com',
+      websiteLink: websiteLink ?? 'https://bappaji.com/',
       stallDescription:
         stallDescription ??
         'Eco-friendly Shadu Mati Shree Ganesha Murti stall with various sizes available.',
@@ -78,6 +84,8 @@ export function SettingsForm() {
     phone,
     address,
     mapLink,
+    instagramLink,
+    websiteLink,
     stallDescription,
     enquiryMessage,
     telecallingBannerUri,
@@ -149,6 +157,24 @@ export function SettingsForm() {
         value={form.mapLink}
         onChangeText={(value) => setForm((f) => ({ ...f, mapLink: value }))}
         placeholder="https://maps.google.com/..."
+      />
+      <AppInput
+        label="Instagram Link"
+        value={form.instagramLink}
+        onChangeText={(value) =>
+          setForm((f) => ({ ...f, instagramLink: value }))
+        }
+        placeholder="https://www.instagram.com/..."
+        autoCapitalize="none"
+        keyboardType="url"
+      />
+      <AppInput
+        label="Website Link"
+        value={form.websiteLink}
+        onChangeText={(value) => setForm((f) => ({ ...f, websiteLink: value }))}
+        placeholder="https://bappaji.com/"
+        autoCapitalize="none"
+        keyboardType="url"
       />
       <AppInput
         label="Stall Details (for Tele-calling messages)"

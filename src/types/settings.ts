@@ -4,6 +4,16 @@ export interface BusinessSettings {
   address: string;
   /** Google Maps link or pinpoint URL shared in Tele-calling WhatsApp messages. */
   mapLink: string;
+  /**
+   * Instagram profile URL (device-local; same pattern as Website Link).
+   * Not stored on the vendors table.
+   */
+  instagramLink: string;
+  /**
+   * Business website URL (device-local; same pattern as Instagram Link).
+   * Not stored on the vendors table.
+   */
+  websiteLink: string;
   /** Short stall description for Tele-calling messages. */
   stallDescription: string;
   /** Pre-drafted WhatsApp message for Tele-calling Send Details. Supports placeholders. */

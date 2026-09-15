@@ -29,13 +29,15 @@ export const useVendorStore = create<VendorState>((set, get) => ({
   applyVendorToSettings: (vendor) => {
     const mapped = vendorToSettings(vendor);
     const current = useSettingsStore.getState();
-    // Keep device-local Tele-calling media (banner + murties PDF) — never
+    // Keep device-local fields (banner, murties PDF, social links) — never
     // cleared by vendor sync (those fields are not stored on vendors).
     useSettingsStore.getState().updateSettings({
       ...mapped,
       telecallingBannerUri: current.telecallingBannerUri,
       murtiesPdfUri: current.murtiesPdfUri,
       murtiesPdfName: current.murtiesPdfName,
+      instagramLink: current.instagramLink,
+      websiteLink: current.websiteLink,
     });
   },
 

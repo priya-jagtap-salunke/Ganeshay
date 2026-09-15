@@ -38,7 +38,7 @@ function downloadPdfOnWeb(pdfUri: string, bookingNumber: string): void {
 }
 
 /** Real receipts are far larger than an empty/corrupt PDF shell. */
-const MIN_RECEIPT_PDF_BYTES = 2_048;
+const MIN_RECEIPT_PDF_BYTES = 10_000;
 
 async function assertValidReceiptPdf(path: string): Promise<void> {
   const info = await FileSystem.getInfoAsync(path);
@@ -71,8 +71,8 @@ async function assertValidReceiptPdf(path: string): Promise<void> {
 }
 
 /**
- * Copy the View Receipt PDF to a stable on-disk .pdf so the system share
- * sheet / WhatsApp treat it as a document (never image or blank attach).
+ * Copy the View Receipt PDF to a stable Documents .pdf so WhatsApp /
+ * FileProvider always receive a real non-empty document (never blank).
  */
 async function ensureShareablePdfUri(
   pdfUri: string,
@@ -85,21 +85,20 @@ async function ensureShareablePdfUri(
 
   await assertValidReceiptPdf(source);
 
-  const cacheDir = FileSystem.cacheDirectory;
-  if (!cacheDir) {
-    throw new Error('File cache is unavailable on this device.');
+  const baseDir = FileSystem.documentDirectory || FileSystem.cacheDirectory;
+  if (!baseDir) {
+    throw new Error('File storage is unavailable on this device.');
   }
 
-  const downloadDir = `${cacheDir}Download/`;
+  const shareDir = `${baseDir}InvoiceShare/`;
   try {
-    await FileSystem.makeDirectoryAsync(downloadDir, { intermediates: true });
+    await FileSystem.makeDirectoryAsync(shareDir, { intermediates: true });
   } catch {
     // Directory may already exist.
   }
 
   const safeNumber = bookingNumber.replace(/[^\w.-]+/g, '_');
-  // Same on-disk name family as Download Receipt / View Receipt PDF.
-  const destPath = `${downloadDir}Receipt_${safeNumber}.pdf`;
+  const destPath = `${shareDir}Receipt_${safeNumber}.pdf`;
 
   try {
     await FileSystem.deleteAsync(destPath, { idempotent: true });
@@ -110,6 +109,23 @@ async function ensureShareablePdfUri(
   await assertValidReceiptPdf(destPath);
 
   return destPath.startsWith('file://') ? destPath : `file://${destPath}`;
+}
+
+/**
+ * Android FileProvider + cache URIs often attach a blank PDF in WhatsApp.
+ * Sharing the verified PDF as a data URI lets RN Share rewrite a full .pdf.
+ */
+async function shareUrlForWhatsApp(filePdfUri: string): Promise<string> {
+  if (Platform.OS !== 'android') {
+    return filePdfUri;
+  }
+  const base64 = await FileSystem.readAsStringAsync(filePdfUri, {
+    encoding: FileSystem.EncodingType.Base64,
+  });
+  if (!base64 || base64.length < 8_000 || !base64.startsWith('JVBERi')) {
+    throw new Error('Receipt PDF is empty. Please try again.');
+  }
+  return `data:application/pdf;base64,${base64}`;
 }
 
 function isUserCancelledShare(error: unknown): boolean {
@@ -166,12 +182,14 @@ export async function shareNewBookingInvoicePdfOnWhatsApp(
   }
 
   let shareablePdfUri: string;
+  let shareUrl: string;
   try {
     // Same on-disk View Receipt PDF bytes — reject empty/corrupt before share.
     shareablePdfUri = await ensureShareablePdfUri(
       pdfUri,
       booking.booking_number
     );
+    shareUrl = await shareUrlForWhatsApp(shareablePdfUri);
   } catch (error) {
     console.warn('Could not prepare receipt PDF for WhatsApp', error);
     Alert.alert(
@@ -189,7 +207,7 @@ export async function shareNewBookingInvoicePdfOnWhatsApp(
       title: `Receipt ${booking.booking_number}`,
       phone,
       appKind,
-      url: shareablePdfUri,
+      url: shareUrl,
       type: 'application/pdf',
       filename: pdfFilename,
       message: undefined,
@@ -206,7 +224,7 @@ export async function shareNewBookingInvoicePdfOnWhatsApp(
         title: `Receipt ${booking.booking_number}`,
         phone,
         appKind: alternate,
-        url: shareablePdfUri,
+        url: shareUrl,
         type: 'application/pdf',
         filename: pdfFilename,
         message: undefined,

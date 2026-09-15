@@ -100,6 +100,103 @@ async function generateWebPdf(html: string): Promise<string> {
   return generatePdfBlobUrlFromHtml(html);
 }
 
+/**
+ * Real invoice PDFs with murti/logo text are typically >> 10KB.
+ * Blank expo-print shells are often only a few KB but still start with %PDF.
+ */
+const MIN_NONEMPTY_RECEIPT_PDF_BYTES = 10_000;
+
+async function receiptPdfByteSize(uri: string): Promise<number> {
+  const FileSystem = await import('expo-file-system');
+  const path =
+    uri.startsWith('file://') || uri.startsWith('content://')
+      ? uri
+      : `file://${uri}`;
+  const info = await FileSystem.getInfoAsync(path);
+  if (!info.exists || info.isDirectory) return 0;
+  return typeof info.size === 'number' ? info.size : 0;
+}
+
+/**
+ * Android View Receipt is HTML; expo-print of that HTML can yield blank pages.
+ * Rasterize the exact View Receipt HTML, then wrap the PNG in a one-page PDF
+ * so WhatsApp gets a real non-blank .pdf that matches the screen.
+ */
+async function generateReceiptPdfFromViewReceiptHtml(
+  booking: Booking,
+  settings: BusinessDocumentSettings
+): Promise<string> {
+  const FileSystem = await import('expo-file-system');
+  const html = await buildReceiptViewHtml(booking, settings);
+  const pngUri = await captureReceiptHtmlToPng(
+    html,
+    `Receipt_${booking.booking_number}_view.png`
+  );
+  const pngBase64 = await FileSystem.readAsStringAsync(pngUri, {
+    encoding: FileSystem.EncodingType.Base64,
+  });
+  if (!pngBase64 || pngBase64.length < 2_000) {
+    throw new Error('Could not capture View Receipt for PDF share.');
+  }
+
+  const wrapHtml = `<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="utf-8" /></head>
+<body style="margin:0;padding:0;background:#FFF8E8;">
+<img src="data:image/png;base64,${pngBase64}" width="100%" style="width:100%;display:block;margin:0;padding:0;border:0;" />
+</body>
+</html>`;
+
+  const Print = await import('expo-print');
+  const result = await Print.printToFileAsync({
+    html: wrapHtml,
+    width: 595,
+    height: 842,
+    margins: { top: 0, bottom: 0, left: 0, right: 0 },
+  });
+  if (!result?.uri) {
+    throw new Error('PDF file was not created from View Receipt.');
+  }
+
+  const size = await receiptPdfByteSize(result.uri);
+  if (size < MIN_NONEMPTY_RECEIPT_PDF_BYTES) {
+    throw new Error('View Receipt PDF is empty. Please try again.');
+  }
+
+  return result.uri;
+}
+
+/**
+ * Invoice PDF for WhatsApp share — same content as View Receipt, never blank.
+ * - iOS: same generateReceiptPdf file View Receipt displays
+ * - Android: View Receipt HTML rasterized into a real .pdf (print alone can be blank)
+ * Does not write into the View Receipt / Download PDF cache.
+ */
+export async function generateReceiptPdfForWhatsAppShare(
+  booking: Booking,
+  settings: BusinessDocumentSettings
+): Promise<string> {
+  if (Platform.OS === 'android') {
+    try {
+      return await generateReceiptPdfFromViewReceiptHtml(booking, settings);
+    } catch (error) {
+      console.warn(
+        'View Receipt→PDF share failed, falling back to print PDF',
+        error
+      );
+    }
+  }
+
+  invalidateReceiptCache(booking.id);
+  const uri = await generateReceiptPdf(booking, settings);
+  const size = await receiptPdfByteSize(uri);
+  if (size < MIN_NONEMPTY_RECEIPT_PDF_BYTES && Platform.OS !== 'web') {
+    // Last resort: force View Receipt capture if print PDF is empty.
+    return generateReceiptPdfFromViewReceiptHtml(booking, settings);
+  }
+  return uri;
+}
+
 export async function generateReceiptPdf(
   booking: Booking,
   settings: BusinessDocumentSettings

@@ -2,6 +2,7 @@ import { useState, useCallback, useRef } from 'react';
 import { Alert } from 'react-native';
 import {
   generateReceiptPdf,
+  generateReceiptPdfForWhatsAppShare,
   downloadReceiptPdf,
   shareReceipt,
   shareReceiptViaWhatsApp,
@@ -179,9 +180,11 @@ export function useReceipt() {
       );
       const fullBooking = await fetchBookingById(booking.id);
 
-      // Same generator View Receipt uses; drop cache so share is never a stale PDF.
-      invalidateReceiptCache(fullBooking.id);
-      const pdfUri = await generateReceiptPdf(fullBooking, settings);
+      // Same receipt as View Receipt; Android uses View HTML→PDF so share is never blank.
+      const pdfUri = await generateReceiptPdfForWhatsAppShare(
+        fullBooking,
+        settings
+      );
 
       await shareNewBookingInvoicePdfOnWhatsApp(fullBooking, pdfUri);
     } catch (error) {

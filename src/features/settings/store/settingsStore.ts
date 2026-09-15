@@ -17,6 +17,8 @@ export const useSettingsStore = create<SettingsState>()(
       phone: '',
       address: '',
       mapLink: '',
+      instagramLink: 'https://www.instagram.com/bappaji_com',
+      websiteLink: 'https://bappaji.com/',
       stallDescription:
         'Eco-friendly Shadu Mati Shree Ganesha Murti stall with various sizes available.',
       enquiryMessage: DEFAULT_ENQUIRY_MESSAGE,
