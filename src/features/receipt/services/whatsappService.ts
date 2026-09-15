@@ -165,15 +165,9 @@ export async function shareNewBookingInvoicePdfOnWhatsApp(
     return;
   }
 
-  // iOS: no public API to attach a PDF to a phone/jid without Open In (share
-  // sheet → contact picker). Open THIS booking contact's chat directly.
-  if (Platform.OS === 'ios') {
-    await openDeviceWhatsAppApp(phone, '', appKind);
-    return;
-  }
-
   let shareablePdfUri: string;
   try {
+    // Same on-disk View Receipt PDF bytes — reject empty/corrupt before share.
     shareablePdfUri = await ensureShareablePdfUri(
       pdfUri,
       booking.booking_number

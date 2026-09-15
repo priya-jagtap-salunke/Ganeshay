@@ -9,7 +9,6 @@ import { usePortalStore } from '@/stores/portalStore';
 import { useVendorStore } from '@/stores/vendorStore';
 import { getErrorMessage } from '@/utils/errors';
 import { BusinessLogoPicker } from './BusinessLogoPicker';
-import { MurtiesPdfPicker } from './MurtiesPdfPicker';
 import { TelecallingBannerPicker } from './TelecallingBannerPicker';
 import { AppInput } from '@/components/ui/AppInput';
 import { AppButton } from '@/components/ui/AppButton';
@@ -188,15 +187,6 @@ export function SettingsForm() {
         onBannerChange={(telecallingBannerUri) => {
           setForm((f) => ({ ...f, telecallingBannerUri }));
           updateSettings({ telecallingBannerUri });
-        }}
-      />
-
-      <MurtiesPdfPicker
-        pdfUri={form.murtiesPdfUri}
-        pdfName={form.murtiesPdfName}
-        onPdfChange={(murtiesPdfUri, murtiesPdfName) => {
-          setForm((f) => ({ ...f, murtiesPdfUri, murtiesPdfName }));
-          updateSettings({ murtiesPdfUri, murtiesPdfName });
         }}
       />
 

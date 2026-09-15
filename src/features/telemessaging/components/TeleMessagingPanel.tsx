@@ -28,7 +28,6 @@ import { TeleMessagingContactRow } from './TeleMessagingContactRow';
 import { TeleMessagingFilterBar } from './TeleMessagingFilterBar';
 import {
   sharePredraftedMessageOnWhatsApp,
-  shareWebsiteOnWhatsApp,
 } from '../services/telemessagingWhatsAppService';
 
 function uniqueContacts(list: TelecallingContact[]): TelecallingContact[] {
@@ -91,10 +90,7 @@ export function TeleMessagingPanel() {
         contactId: contact.id,
         outcome: 'sent',
         messageKind: kind,
-        notes:
-          kind === 'catalog'
-            ? 'Website link shared on WhatsApp'
-            : 'Details sent on WhatsApp',
+        notes: 'Details sent on WhatsApp',
       });
       // Move to Sent tab so the contact appears there immediately.
       setFilter('sent');
@@ -108,7 +104,7 @@ export function TeleMessagingPanel() {
   };
 
   /**
-   * One Send → choose details (message) or website link (https://bappaji.com/).
+   * Send → predrafted stall details message (includes https://bappaji.com/).
    */
   const handleSendWhatsApp = (contact: TelecallingContact) => {
     Alert.alert('Send WhatsApp', 'Choose what to send', [
@@ -131,29 +127,6 @@ export function TeleMessagingPanel() {
                 Alert.alert(
                   'WhatsApp Failed',
                   getErrorMessage(error) || 'Could not open WhatsApp.'
-                );
-              }
-            }
-          })();
-        },
-      },
-      {
-        text: 'Send website',
-        onPress: () => {
-          void (async () => {
-            try {
-              const shared = await shareWebsiteOnWhatsApp({
-                mobile: contact.mobile,
-                customerName: contact.name,
-              });
-              if (shared) {
-                await markSent(contact, 'catalog');
-              }
-            } catch (error) {
-              if (!getErrorMessage(error).toLowerCase().includes('cancel')) {
-                Alert.alert(
-                  'WhatsApp Failed',
-                  getErrorMessage(error) || 'Could not share website link.'
                 );
               }
             }
@@ -184,7 +157,7 @@ export function TeleMessagingPanel() {
         <Text variant="bodyMedium" style={{ color: colors.textSecondary }}>
           {contactCount === 0
             ? 'Import contacts from Tele-calling first. The same list appears here for WhatsApp messaging.'
-            : `${contactCount} contact${contactCount === 1 ? '' : 's'} · Send → details or website · auto-moves to Sent`}
+            : `${contactCount} contact${contactCount === 1 ? '' : 's'} · Send → details · auto-moves to Sent`}
         </Text>
         {contactCount === 0 ? (
           <AppButton

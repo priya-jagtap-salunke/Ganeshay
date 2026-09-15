@@ -1,5 +1,2 @@
 export { TeleMessagingPanel } from './components/TeleMessagingPanel';
-export {
-  sharePredraftedMessageOnWhatsApp,
-  shareWebsiteOnWhatsApp,
-} from './services/telemessagingWhatsAppService';
+export { sharePredraftedMessageOnWhatsApp } from './services/telemessagingWhatsAppService';

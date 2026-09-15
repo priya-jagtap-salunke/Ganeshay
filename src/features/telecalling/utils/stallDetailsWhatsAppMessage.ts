@@ -88,5 +88,9 @@ export function buildStallDetailsWhatsAppMessage(
     stallDetails,
   });
 
-  return callSection ? `${message}${callSection}` : message;
+  const withCall = callSection ? `${message}${callSection}` : message;
+  if (withCall.includes('https://bappaji.com/')) {
+    return withCall;
+  }
+  return `${withCall}\n\nhttps://bappaji.com/`;
 }

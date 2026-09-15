@@ -17,9 +17,6 @@ export interface TeleMessagingShareRecipient {
   customerName?: string | null;
 }
 
-/** Website shared instead of Catalogue PDF (Tele-Messaging Send). */
-export const BAPPAJI_WEBSITE_URL = 'https://bappaji.com/';
-
 /** Latest Settings for predraft message (stall / location text). */
 function resolveLiveSettings(
   settings?: BusinessSettings | null
@@ -75,42 +72,4 @@ export async function sharePredraftedMessageOnWhatsApp(
   }
 
   await openDeviceWhatsAppApp(phone, message, installedApp);
-}
-
-/**
- * Tele-Messaging → Send website:
- * Opens WhatsApp directly to THIS contact with https://bappaji.com/
- * (no share sheet / contact picker). Replaces Catalogue PDF.
- * @returns true when WhatsApp launched successfully
- */
-export async function shareWebsiteOnWhatsApp(
-  recipient: TeleMessagingShareRecipient
-): Promise<boolean> {
-  const phone = formatWhatsAppPhone(recipient.mobile);
-  const message = BAPPAJI_WEBSITE_URL;
-
-  if (!phone) {
-    Alert.alert('Invalid Mobile', 'Customer mobile number is missing or invalid.');
-    return false;
-  }
-
-  if (Platform.OS === 'web') {
-    const url = getWhatsAppWebUrl(phone, message);
-    try {
-      await Linking.openURL(url);
-      return true;
-    } catch {
-      Alert.alert('WhatsApp', 'Could not open WhatsApp Web.');
-      return false;
-    }
-  }
-
-  const installedApp = await resolveInstalledWhatsAppApp();
-  if (!installedApp) {
-    showWhatsAppMissingAlert();
-    return false;
-  }
-
-  await openDeviceWhatsAppApp(phone, message, installedApp);
-  return true;
 }
