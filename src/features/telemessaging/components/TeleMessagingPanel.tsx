@@ -27,8 +27,8 @@ import { radius, spacing } from '@/theme/spacing';
 import { TeleMessagingContactRow } from './TeleMessagingContactRow';
 import { TeleMessagingFilterBar } from './TeleMessagingFilterBar';
 import {
-  shareCatalogOnWhatsApp,
   sharePredraftedMessageOnWhatsApp,
+  shareWebsiteOnWhatsApp,
 } from '../services/telemessagingWhatsAppService';
 
 function uniqueContacts(list: TelecallingContact[]): TelecallingContact[] {
@@ -93,7 +93,7 @@ export function TeleMessagingPanel() {
         messageKind: kind,
         notes:
           kind === 'catalog'
-            ? 'Catalogue shared on WhatsApp'
+            ? 'Website link shared on WhatsApp'
             : 'Details sent on WhatsApp',
       });
       // Move to Sent tab so the contact appears there immediately.
@@ -108,7 +108,7 @@ export function TeleMessagingPanel() {
   };
 
   /**
-   * One Send → choose details (message) or catalogue (real PDF attach).
+   * One Send → choose details (message) or website link (https://bappaji.com/).
    */
   const handleSendWhatsApp = (contact: TelecallingContact) => {
     Alert.alert('Send WhatsApp', 'Choose what to send', [
@@ -138,24 +138,14 @@ export function TeleMessagingPanel() {
         },
       },
       {
-        text: 'Send catalogue',
+        text: 'Send website',
         onPress: () => {
-          if (!settings.murtiesPdfUri) {
-            Alert.alert(
-              'Catalog Missing',
-              'Upload the Ganesh Murti catalog PDF in Settings, then try again.'
-            );
-            return;
-          }
           void (async () => {
             try {
-              const shared = await shareCatalogOnWhatsApp(
-                {
-                  mobile: contact.mobile,
-                  customerName: contact.name,
-                },
-                settings
-              );
+              const shared = await shareWebsiteOnWhatsApp({
+                mobile: contact.mobile,
+                customerName: contact.name,
+              });
               if (shared) {
                 await markSent(contact, 'catalog');
               }
@@ -163,7 +153,7 @@ export function TeleMessagingPanel() {
               if (!getErrorMessage(error).toLowerCase().includes('cancel')) {
                 Alert.alert(
                   'WhatsApp Failed',
-                  getErrorMessage(error) || 'Could not share catalogue PDF.'
+                  getErrorMessage(error) || 'Could not share website link.'
                 );
               }
             }
@@ -194,7 +184,7 @@ export function TeleMessagingPanel() {
         <Text variant="bodyMedium" style={{ color: colors.textSecondary }}>
           {contactCount === 0
             ? 'Import contacts from Tele-calling first. The same list appears here for WhatsApp messaging.'
-            : `${contactCount} contact${contactCount === 1 ? '' : 's'} · Send → details or catalogue · auto-moves to Sent`}
+            : `${contactCount} contact${contactCount === 1 ? '' : 's'} · Send → details or website · auto-moves to Sent`}
         </Text>
         {contactCount === 0 ? (
           <AppButton

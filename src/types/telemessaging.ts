@@ -76,7 +76,7 @@ export function getMessageStatusShortLabel(
   if (normalizeTeleMessagingStatus(status) === 'pending') {
     return 'Pending';
   }
-  if (kind === 'catalog') return 'Catalog sent';
+  if (kind === 'catalog') return 'Website sent';
   if (kind === 'predraft') return 'Details sent';
   return 'Sent';
 }
