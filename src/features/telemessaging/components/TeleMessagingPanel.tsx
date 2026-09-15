@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { StyleSheet, FlatList, Alert, Linking, View } from 'react-native';
+import { StyleSheet, FlatList, Alert, View } from 'react-native';
 import { Searchbar, Text } from 'react-native-paper';
 import { useRouter, type Href } from 'expo-router';
 import { AppButton } from '@/components/ui/AppButton';
@@ -29,26 +29,6 @@ import { TeleMessagingFilterBar } from './TeleMessagingFilterBar';
 import {
   sharePredraftedMessageOnWhatsApp,
 } from '../services/telemessagingWhatsAppService';
-
-/** From bappaji.com “दिशा मिळवा” — opens the Maps place (reviews available). */
-const BAPPAJI_GOOGLE_MAPS_REVIEW_URL =
-  'https://www.google.com/maps/search/?api=1&query=Khinvasara+Mayfair+Shopping+Complex,+Ulkanagari,+Chhatrapati+Sambhajinagar';
-
-/** From bappaji.com Instagram link. */
-const BAPPAJI_INSTAGRAM_URL = 'https://www.instagram.com/bappaji_com';
-
-async function openExternalUrl(url: string, label: string) {
-  try {
-    const canOpen = await Linking.canOpenURL(url);
-    if (!canOpen) {
-      Alert.alert('Unable to Open', `Could not open ${label}.`);
-      return;
-    }
-    await Linking.openURL(url);
-  } catch {
-    Alert.alert('Unable to Open', `Could not open ${label}.`);
-  }
-}
 
 function uniqueContacts(list: TelecallingContact[]): TelecallingContact[] {
   const seen = new Set<string>();
@@ -124,7 +104,7 @@ export function TeleMessagingPanel() {
   };
 
   /**
-   * Send → predrafted stall details, or Combine (Maps review / Instagram).
+   * Send → predrafted stall details message (includes https://bappaji.com/).
    */
   const handleSendWhatsApp = (contact: TelecallingContact) => {
     Alert.alert('Send WhatsApp', 'Choose what to send', [
@@ -151,29 +131,6 @@ export function TeleMessagingPanel() {
               }
             }
           })();
-        },
-      },
-      {
-        text: 'Combine',
-        onPress: () => {
-          Alert.alert('Combine', 'Choose an option', [
-            { text: 'Cancel', style: 'cancel' },
-            {
-              text: 'Google Map Review',
-              onPress: () => {
-                void openExternalUrl(
-                  BAPPAJI_GOOGLE_MAPS_REVIEW_URL,
-                  'Google Maps'
-                );
-              },
-            },
-            {
-              text: 'Follow us on Instagram',
-              onPress: () => {
-                void openExternalUrl(BAPPAJI_INSTAGRAM_URL, 'Instagram');
-              },
-            },
-          ]);
         },
       },
     ]);

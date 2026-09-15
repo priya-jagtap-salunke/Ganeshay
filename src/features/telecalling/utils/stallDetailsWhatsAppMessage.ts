@@ -1,31 +1,47 @@
 import { BusinessSettings } from '@/types/settings';
 
 export const STALL_DETAILS_MESSAGE_PLACEHOLDERS =
-  '{customer}, {businessName}, {address}, {phone}, {mapLink}, {stallDetails}';
+  '{customer}, {businessName}, {address}, {phone}, {mapLink}, {instagramLink}, {websiteLink}, {stallDetails}';
 
 /** @deprecated Use STALL_DETAILS_MESSAGE_PLACEHOLDERS */
 export const ENQUIRY_MESSAGE_PLACEHOLDERS = STALL_DETAILS_MESSAGE_PLACEHOLDERS;
 
-export const DEFAULT_STALL_DETAILS_MESSAGE = `🙏 Namaste {customer} 🙏
+const DEFAULT_MAP_LINK =
+  'https://maps.app.goo.gl/xbENsAo5Eq9R4c739?g_st=ic';
+const DEFAULT_INSTAGRAM_LINK = 'https://www.instagram.com/bappaji_com';
+const DEFAULT_WEBSITE_LINK = 'https://bappaji.com/';
 
-Thank you for enquiring about our Shree Ganesha Murti stall!
+export const DEFAULT_STALL_DETAILS_MESSAGE = `🌺 ॥ गणपती बाप्पा मोरया ॥ 🌺
+🙏🏻 नमस्कार छत्रपती संभाजीनगरकर 🙏🏻
 
-🏪 *{businessName}*
-🪔 Eco-friendly Shree Ganesha Murti
+✨ दरवर्षीप्रमाणे ह्याही वर्षी…
+Bappaji.com घेऊन आले आहे पेण, रायगड येथील सुप्रसिद्ध शाडू मातीतील सुंदर, सुबक आणि आकर्षक श्री गणेशमूर्ती! 🙏🌿 ज्या बघताक्षणी कुणालाही प्रेमात पाडतील ❤️❤️
 
-📍 *Location:*
-{address}
-📌 Location Pin: {mapLink}
+🌱 पर्यावरणपूरक मूर्ती | सुंदर डिझाईन्स | शेकडो पर्याय
 
-📋 *Stall Details:*
-{stallDetails}
+🙏 आपल्या घरी घेऊन जा एक सुंदर, पवित्र व पर्यावरणपूरक बाप्पा ❤️
 
-☎️ *Contact:*
-{phone}
+🔥 त्वरित पूर्वनोंदणी करा!
+📅 २० ऑगस्ट २०२६ पासून सुरू
 
-Visit us or reply here for sizes, prices, and booking.
+🎉 तर मग येताय ना नक्की!!!
+एकदा अवश्य भेट द्या… बाप्पा तुमची आतुरतेने वाट पाहत आहेत! 💫
 
-Ganpati Bappa Morya! 🙏`;
+📍 खिंवसरा मेफेअर शॉपिंग कॉम्प्लेक्स,
+उल्कानगरी, छत्रपती संभाजीनगर
+
+🗺️ Google Maps:
+{mapLink}
+
+📸 Instagram:
+{instagramLink}
+
+🌐 Website:
+{websiteLink}
+
+📞 संपर्क: 7972962917 / 9665543009
+
+🌺 गणपती बाप्पा मोरया! 🌺`;
 
 /** @deprecated Use DEFAULT_STALL_DETAILS_MESSAGE */
 export const DEFAULT_ENQUIRY_MESSAGE = DEFAULT_STALL_DETAILS_MESSAGE;
@@ -57,6 +73,20 @@ function applyPlaceholders(
     .trim();
 }
 
+function ensureWebsiteLinkSection(message: string, websiteLink: string): string {
+  const link = websiteLink.trim() || DEFAULT_WEBSITE_LINK;
+  const lower = message.toLowerCase();
+  if (
+    lower.includes(link.toLowerCase()) ||
+    lower.includes('🌐 website') ||
+    /website:\s*\n?\s*https?:\/\/bappaji\.com/i.test(message)
+  ) {
+    return message;
+  }
+  // Same layout as Instagram block when older saved templates omit Website.
+  return `${message}\n\n🌐 Website:\n${link}`;
+}
+
 export interface StallDetailsRecipient {
   customerName?: string | null;
   /** Optional call timestamp shown as a footer line. */
@@ -74,7 +104,10 @@ export function buildStallDetailsWhatsAppMessage(
   const stallDetails =
     settings.stallDescription?.trim() ||
     'Eco-friendly Shadu Mati Shree Ganesha Murti stall with various sizes available.';
-  const mapLink = settings.mapLink?.trim() || '';
+  const mapLink = settings.mapLink?.trim() || DEFAULT_MAP_LINK;
+  const instagramLink =
+    settings.instagramLink?.trim() || DEFAULT_INSTAGRAM_LINK;
+  const websiteLink = settings.websiteLink?.trim() || DEFAULT_WEBSITE_LINK;
   const callSection = recipient.callDate
     ? `\n📞 Your call on: ${formatCallDate(recipient.callDate)}`
     : '';
@@ -85,12 +118,11 @@ export function buildStallDetailsWhatsAppMessage(
     address: settings.address,
     phone: settings.phone,
     mapLink,
+    instagramLink,
+    websiteLink,
     stallDetails,
   });
 
   const withCall = callSection ? `${message}${callSection}` : message;
-  if (withCall.includes('https://bappaji.com/')) {
-    return withCall;
-  }
-  return `${withCall}\n\nhttps://bappaji.com/`;
+  return ensureWebsiteLinkSection(withCall, websiteLink);
 }
