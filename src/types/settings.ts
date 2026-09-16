@@ -18,6 +18,8 @@ export interface BusinessSettings {
   stallDescription: string;
   /** Pre-drafted WhatsApp message for Tele-calling Send Details. Supports placeholders. */
   enquiryMessage: string;
+  /** Pre-drafted WhatsApp message for Tele-Messaging Review & Request (device-local). */
+  reviewRequestMessage: string;
   /**
    * Image banner attached with Tele-calling Send (message + banner).
    * Stored locally on device (not on vendors table).

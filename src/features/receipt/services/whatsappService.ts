@@ -111,23 +111,6 @@ async function ensureShareablePdfUri(
   return destPath.startsWith('file://') ? destPath : `file://${destPath}`;
 }
 
-/**
- * Android FileProvider + cache URIs often attach a blank PDF in WhatsApp.
- * Sharing the verified PDF as a data URI lets RN Share rewrite a full .pdf.
- */
-async function shareUrlForWhatsApp(filePdfUri: string): Promise<string> {
-  if (Platform.OS !== 'android') {
-    return filePdfUri;
-  }
-  const base64 = await FileSystem.readAsStringAsync(filePdfUri, {
-    encoding: FileSystem.EncodingType.Base64,
-  });
-  if (!base64 || base64.length < 8_000 || !base64.startsWith('JVBERi')) {
-    throw new Error('Receipt PDF is empty. Please try again.');
-  }
-  return `data:application/pdf;base64,${base64}`;
-}
-
 function isUserCancelledShare(error: unknown): boolean {
   const msg = (
     error instanceof Error ? error.message : String(error)
@@ -182,14 +165,12 @@ export async function shareNewBookingInvoicePdfOnWhatsApp(
   }
 
   let shareablePdfUri: string;
-  let shareUrl: string;
   try {
     // Same on-disk View Receipt PDF bytes — reject empty/corrupt before share.
     shareablePdfUri = await ensureShareablePdfUri(
       pdfUri,
       booking.booking_number
     );
-    shareUrl = await shareUrlForWhatsApp(shareablePdfUri);
   } catch (error) {
     console.warn('Could not prepare receipt PDF for WhatsApp', error);
     Alert.alert(
@@ -202,36 +183,30 @@ export async function shareNewBookingInvoicePdfOnWhatsApp(
 
   const pdfFilename = `Receipt_${booking.booking_number}.pdf`;
 
-  try {
+  const attachPdfToContact = async (kind: WhatsAppAppKind) => {
+    // Single intent with jid/whatsAppNumber → THIS booking contact (no Send-to picker).
     await shareWhatsAppMedia({
       title: `Receipt ${booking.booking_number}`,
       phone,
-      appKind,
-      url: shareUrl,
+      appKind: kind,
+      url: shareablePdfUri,
       type: 'application/pdf',
       filename: pdfFilename,
       message: undefined,
       targetPhone: true,
-      useInternalStorage: true,
+      useInternalStorage: false,
       timeoutMs: 60_000,
     });
+  };
+
+  try {
+    await attachPdfToContact(appKind);
   } catch (error) {
     if (isUserCancelledShare(error)) return;
     const alternate: WhatsAppAppKind =
       appKind === 'consumer' ? 'business' : 'consumer';
     try {
-      await shareWhatsAppMedia({
-        title: `Receipt ${booking.booking_number}`,
-        phone,
-        appKind: alternate,
-        url: shareUrl,
-        type: 'application/pdf',
-        filename: pdfFilename,
-        message: undefined,
-        targetPhone: true,
-        useInternalStorage: true,
-        timeoutMs: 60_000,
-      });
+      await attachPdfToContact(alternate);
       return;
     } catch (retryError) {
       if (isUserCancelledShare(retryError)) return;

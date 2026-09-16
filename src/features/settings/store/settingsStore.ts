@@ -4,6 +4,7 @@ import { useShallow } from 'zustand/react/shallow';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { BusinessDocumentSettings, BusinessSettings } from '@/types/settings';
 import { DEFAULT_ENQUIRY_MESSAGE } from '@/features/telecalling/utils/stallDetailsWhatsAppMessage';
+import { DEFAULT_REVIEW_REQUEST_MESSAGE } from '@/features/telemessaging/utils/reviewRequestMessage';
 
 interface SettingsState extends BusinessSettings {
   updateSettings: (settings: Partial<BusinessSettings>) => void;
@@ -22,6 +23,7 @@ export const useSettingsStore = create<SettingsState>()(
       stallDescription:
         'Eco-friendly Shadu Mati Shree Ganesha Murti stall with various sizes available.',
       enquiryMessage: DEFAULT_ENQUIRY_MESSAGE,
+      reviewRequestMessage: DEFAULT_REVIEW_REQUEST_MESSAGE,
       telecallingBannerUri: null,
       murtiesPdfUri: null,
       murtiesPdfName: null,

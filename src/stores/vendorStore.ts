@@ -38,6 +38,7 @@ export const useVendorStore = create<VendorState>((set, get) => ({
       murtiesPdfName: current.murtiesPdfName,
       instagramLink: current.instagramLink,
       websiteLink: current.websiteLink,
+      reviewRequestMessage: current.reviewRequestMessage,
     });
   },
 

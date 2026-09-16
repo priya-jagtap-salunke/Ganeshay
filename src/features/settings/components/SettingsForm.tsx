@@ -16,6 +16,7 @@ import {
   DEFAULT_ENQUIRY_MESSAGE,
   ENQUIRY_MESSAGE_PLACEHOLDERS,
 } from '@/features/telecalling/utils/stallDetailsWhatsAppMessage';
+import { DEFAULT_REVIEW_REQUEST_MESSAGE } from '@/features/telemessaging/utils/reviewRequestMessage';
 import { colors } from '@/theme/colors';
 import { shadows } from '@/theme/shadows';
 import { radius, spacing } from '@/theme/spacing';
@@ -31,6 +32,7 @@ export function SettingsForm() {
     websiteLink,
     stallDescription,
     enquiryMessage,
+    reviewRequestMessage,
     telecallingBannerUri,
     murtiesPdfUri,
     murtiesPdfName,
@@ -50,6 +52,7 @@ export function SettingsForm() {
       stallDescription ??
       'Eco-friendly Shadu Mati Shree Ganesha Murti stall with various sizes available.',
     enquiryMessage: enquiryMessage ?? DEFAULT_ENQUIRY_MESSAGE,
+    reviewRequestMessage: reviewRequestMessage ?? DEFAULT_REVIEW_REQUEST_MESSAGE,
     telecallingBannerUri: telecallingBannerUri ?? null,
     murtiesPdfUri: murtiesPdfUri ?? null,
     murtiesPdfName: murtiesPdfName ?? null,
@@ -73,6 +76,7 @@ export function SettingsForm() {
         stallDescription ??
         'Eco-friendly Shadu Mati Shree Ganesha Murti stall with various sizes available.',
       enquiryMessage: enquiryMessage ?? DEFAULT_ENQUIRY_MESSAGE,
+      reviewRequestMessage: reviewRequestMessage ?? DEFAULT_REVIEW_REQUEST_MESSAGE,
       telecallingBannerUri: telecallingBannerUri ?? null,
       murtiesPdfUri: murtiesPdfUri ?? null,
       murtiesPdfName: murtiesPdfName ?? null,
@@ -88,6 +92,7 @@ export function SettingsForm() {
     websiteLink,
     stallDescription,
     enquiryMessage,
+    reviewRequestMessage,
     telecallingBannerUri,
     murtiesPdfUri,
     murtiesPdfName,
@@ -206,6 +211,32 @@ export function SettingsForm() {
         }
       >
         Reset to Default Message
+      </AppButton>
+
+      <Text style={styles.subsectionTitle}>Review & Request Message</Text>
+      <Text style={styles.fieldHint}>
+        Sent when you tap Review & Request in Tele-Messaging for the selected
+        contact.
+      </Text>
+      <AppInput
+        label="Review & Request Message"
+        value={form.reviewRequestMessage}
+        onChangeText={(value) =>
+          setForm((f) => ({ ...f, reviewRequestMessage: value }))
+        }
+        multiline
+        style={styles.messageInput}
+      />
+      <AppButton
+        variant="outline"
+        onPress={() =>
+          setForm((f) => ({
+            ...f,
+            reviewRequestMessage: DEFAULT_REVIEW_REQUEST_MESSAGE,
+          }))
+        }
+      >
+        Reset to Default Review Message
       </AppButton>
 
       <TelecallingBannerPicker

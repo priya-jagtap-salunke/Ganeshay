@@ -11,6 +11,7 @@ import {
 } from '@/features/receipt/utils/whatsappApp';
 import { buildStallDetailsWhatsAppMessage } from '@/features/telecalling/utils/stallDetailsWhatsAppMessage';
 import { useSettingsStore } from '@/features/settings/store/settingsStore';
+import { DEFAULT_REVIEW_REQUEST_MESSAGE } from '../utils/reviewRequestMessage';
 
 export interface TeleMessagingShareRecipient {
   mobile: string;
@@ -50,6 +51,50 @@ export async function sharePredraftedMessageOnWhatsApp(
     Alert.alert(
       'Message Missing',
       'Set the Tele-calling / enquiry message in Settings, then try again.'
+    );
+    return;
+  }
+
+  if (Platform.OS === 'web') {
+    const url = getWhatsAppWebUrl(phone, message);
+    const opened = await Linking.canOpenURL(url);
+    if (!opened) {
+      Alert.alert('WhatsApp', 'Could not open WhatsApp Web.');
+      return;
+    }
+    await Linking.openURL(url);
+    return;
+  }
+
+  const installedApp = await resolveInstalledWhatsAppApp();
+  if (!installedApp) {
+    showWhatsAppMissingAlert();
+    return;
+  }
+
+  await openDeviceWhatsAppApp(phone, message, installedApp);
+}
+
+/**
+ * Open WhatsApp with the Settings Review & Request message for the selected contact.
+ */
+export async function shareReviewRequestMessageOnWhatsApp(
+  recipient: TeleMessagingShareRecipient
+): Promise<void> {
+  const phone = formatWhatsAppPhone(recipient.mobile);
+  const message =
+    useSettingsStore.getState().reviewRequestMessage?.trim() ||
+    DEFAULT_REVIEW_REQUEST_MESSAGE;
+
+  if (!phone) {
+    Alert.alert('Invalid Mobile', 'Customer mobile number is missing or invalid.');
+    return;
+  }
+
+  if (!message) {
+    Alert.alert(
+      'Message Missing',
+      'Set the Review & Request message in Settings, then try again.'
     );
     return;
   }

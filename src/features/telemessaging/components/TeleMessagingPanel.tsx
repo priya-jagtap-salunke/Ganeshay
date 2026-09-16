@@ -28,6 +28,7 @@ import { TeleMessagingContactRow } from './TeleMessagingContactRow';
 import { TeleMessagingFilterBar } from './TeleMessagingFilterBar';
 import {
   sharePredraftedMessageOnWhatsApp,
+  shareReviewRequestMessageOnWhatsApp,
 } from '../services/telemessagingWhatsAppService';
 
 function uniqueContacts(list: TelecallingContact[]): TelecallingContact[] {
@@ -122,6 +123,26 @@ export function TeleMessagingPanel() {
                 settings
               );
               await markSent(contact, 'predraft');
+            } catch (error) {
+              if (!getErrorMessage(error).toLowerCase().includes('cancel')) {
+                Alert.alert(
+                  'WhatsApp Failed',
+                  getErrorMessage(error) || 'Could not open WhatsApp.'
+                );
+              }
+            }
+          })();
+        },
+      },
+      {
+        text: 'Review & Request',
+        onPress: () => {
+          void (async () => {
+            try {
+              await shareReviewRequestMessageOnWhatsApp({
+                mobile: contact.mobile,
+                customerName: contact.name,
+              });
             } catch (error) {
               if (!getErrorMessage(error).toLowerCase().includes('cancel')) {
                 Alert.alert(
