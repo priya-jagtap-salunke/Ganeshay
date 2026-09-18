@@ -13,7 +13,7 @@ import { isWebBrowser, usesNativePdf } from '../utils/receiptPlatform';
 import { captureReceiptHtmlToPng } from '../utils/receiptImageCapture';
 
 /** Bump when invoice HTML changes so cached PDFs regenerate. */
-const RECEIPT_TEMPLATE_VERSION = 17;
+const RECEIPT_TEMPLATE_VERSION = 18;
 
 const pdfCache = new Map<string, string>();
 /** Dedupe concurrent generateReceiptPdf calls for the same booking. */
@@ -63,6 +63,29 @@ function pdfSettingsForNative(
   return sanitizeSettingsForNativePdf(settings);
 }
 
+/** Invoice PDF HTML — single A4 page, same layout as View Receipt. */
+async function buildReceiptPrintHtml(
+  booking: Booking,
+  settings: BusinessDocumentSettings
+): Promise<string> {
+  const forNativePdf = usesNativePdf();
+  const pdfSettings = pdfSettingsForNative(settings);
+  const [qrMarkup, logoMarkup, murtiPhotoMarkup] = await Promise.all([
+    buildQrMarkup(booking.booking_number, forNativePdf),
+    buildLogoMarkup(pdfSettings, forNativePdf),
+    buildMurtiPhotoMarkup(booking.murti_photo_uri, forNativePdf),
+  ]);
+  return buildReceiptHtml(
+    booking,
+    pdfSettings,
+    qrMarkup,
+    logoMarkup,
+    forNativePdf,
+    murtiPhotoMarkup,
+    true
+  );
+}
+
 async function generateNativePdf(html: string): Promise<string> {
   try {
     const Print = await import('expo-print');
@@ -71,10 +94,10 @@ async function generateNativePdf(html: string): Promise<string> {
       width: 595,
       height: 842,
       margins: {
-        top: 20,
-        bottom: 20,
-        left: 20,
-        right: 20,
+        top: 12,
+        bottom: 12,
+        left: 12,
+        right: 12,
       },
     });
 
@@ -127,7 +150,7 @@ async function generateReceiptPdfFromViewReceiptHtml(
   settings: BusinessDocumentSettings
 ): Promise<string> {
   const FileSystem = await import('expo-file-system');
-  const html = await buildReceiptViewHtml(booking, settings);
+  const html = await buildReceiptPrintHtml(booking, settings);
   const pngUri = await captureReceiptHtmlToPng(
     html,
     `Receipt_${booking.booking_number}_view.png`
@@ -213,21 +236,7 @@ export async function generateReceiptPdf(
   }
 
   const task = (async () => {
-    const forNativePdf = usesNativePdf();
-    const pdfSettings = pdfSettingsForNative(settings);
-    const [qrMarkup, logoMarkup, murtiPhotoMarkup] = await Promise.all([
-      buildQrMarkup(booking.booking_number, forNativePdf),
-      buildLogoMarkup(pdfSettings, forNativePdf),
-      buildMurtiPhotoMarkup(booking.murti_photo_uri, forNativePdf),
-    ]);
-    const html = buildReceiptHtml(
-      booking,
-      pdfSettings,
-      qrMarkup,
-      logoMarkup,
-      forNativePdf,
-      murtiPhotoMarkup
-    );
+    const html = await buildReceiptPrintHtml(booking, settings);
 
     const uri = isWebBrowser()
       ? await generateWebPdf(html)

@@ -1,0 +1,193 @@
+/**
+ * English-only review variation data.
+ * Sentences are combined at runtime — never shown verbatim as a fixed default.
+ */
+
+export const OPENINGS = [
+  'I visited Bappaji.com to choose a Ganpati idol for our home.',
+  'We went to Bappaji.com looking for a Shadu Mati Ganpati murti.',
+  'Had a pleasant visit to Bappaji.com during the Ganpati festival season.',
+  'We stopped by Bappaji.com to see their eco-friendly Ganpati idols.',
+  'Went to Bappaji.com to pick a Ganpati murti for this year.',
+  'I checked out Bappaji.com for a traditional Ganpati idol.',
+  'Our family visited Bappaji.com to select a murti together.',
+  'We needed an eco-friendly Ganpati idol and decided to visit Bappaji.com.',
+  'Bappaji.com was recommended to us for Shadu Mati Ganpati murtis.',
+  'We browsed Bappaji.com before visiting to see the range of idols.',
+  'I went to Bappaji.com with my family ahead of the Ganpati festival.',
+  'We wanted a beautiful Ganpati idol and visited Bappaji.com in person.',
+  'Our first visit to Bappaji.com was to explore Shadu Mati murti options.',
+  'We came to Bappaji.com to compare a few Ganpati murti designs.',
+  'I visited Bappaji.com to find an eco-friendly murti for visarjan.',
+  'We planned our Ganpati festival purchase at Bappaji.com.',
+  'Stopped at Bappaji.com while looking for a traditional Ganpati murti.',
+  'We visited Bappaji.com to see the idol quality before buying.',
+  'I wanted a Shadu Mati Ganpati and visited Bappaji.com to choose one.',
+  'Our visit to Bappaji.com was mainly to select the right murti size and design.',
+  'We checked Bappaji.com for eco-friendly Ganpati murti options this season.',
+  'I went to Bappaji.com after hearing about their Shadu Mati idols.',
+  'We visited Bappaji.com as a family to pick our Ganpati murti.',
+  'Bappaji.com was on our list for a beautiful Ganpati idol this year.',
+  'We visited Bappaji.com to look at traditional Ganpati designs in person.',
+  'I stopped by Bappaji.com to see their eco-friendly Ganpati murti collection.',
+  'We went to Bappaji.com hoping to find a neat Shadu Mati murti.',
+  'Our buying experience at Bappaji.com started with a simple showroom visit.',
+  'I visited Bappaji.com to finalize a Ganpati idol for the festival.',
+  'We chose to visit Bappaji.com for their Shadu Mati Ganpati range.',
+];
+
+export const PRODUCT_DESCRIPTIONS = [
+  'The Shadu Mati Ganpati murti had a beautiful, traditional design.',
+  'The eco-friendly Ganpati idol looked neat and well finished.',
+  'The murti was made from Shadu Mati and suited our visarjan preference.',
+  'We liked the detailing on the Ganpati idol we selected.',
+  'The eco-friendly Ganpati murti had a clean and elegant appearance.',
+  'There was a good variety of traditional Ganpati designs to choose from.',
+  'The idol quality felt consistent and carefully made.',
+  'Our Shadu Mati Ganpati murti looked graceful and well proportioned.',
+  'The beautiful Ganpati idol we picked had fine finishing on the features.',
+  'We appreciated the traditional Ganpati design on the murti we chose.',
+  'The eco-friendly Ganpati idol had a natural look that we preferred.',
+  'The Shadu Mati murti felt lightweight and appropriate for home puja.',
+  'We found a Ganpati idol with a calm expression and good craftsmanship.',
+  'The murti display made it easy to compare sizes and styles.',
+  'Our chosen eco-friendly Ganpati murti looked polished without being overly glossy.',
+  'The Shadu Mati Ganpati had a classic shape that matched what we wanted.',
+  'We noticed neat paint work and balanced proportions on the idol.',
+  'The traditional design details on the murti were clearly visible.',
+  'The beautiful Ganpati idol we bought looked dignified and well made.',
+  'The eco-friendly Shadu Mati murti matched the photos and description.',
+  'We liked how the Ganpati idol looked both from the front and side.',
+  'The idol quality was better than we expected for the price range.',
+  'The Shadu Mati Ganpati murti we selected felt sturdy and well shaped.',
+  'There were several beautiful Ganpati idols in different sizes.',
+  'The traditional Ganpati design on our murti felt authentic and tasteful.',
+];
+
+export const EXPERIENCE_STATEMENTS = [
+  'Browsing the collection was straightforward and unhurried.',
+  'We took our time comparing a few murtis before deciding.',
+  'The overall buying experience felt organized and calm.',
+  'It was easy to shortlist a couple of idols and compare them.',
+  'We felt comfortable asking questions while looking around.',
+  'The visit did not feel rushed, which helped us decide.',
+  'Choosing the murti was simpler once we saw the options in person.',
+  'We could see the idols clearly and judge the finish up close.',
+  'The showroom layout made the selection process easy to follow.',
+  'Our visit was smooth from entry to final selection.',
+  'We appreciated being able to view multiple designs side by side.',
+  'The buying experience was practical and to the point.',
+  'We left with a clear idea of which murti suited our space.',
+  'Comparing sizes in person made the decision easier for us.',
+  'The visit felt welcoming and focused on helping us choose.',
+];
+
+export const SERVICE_STATEMENTS = [
+  'The staff was polite and helped us while selecting the murti.',
+  'They answered our questions patiently about sizes and options.',
+  'The team guided us without rushing our decision.',
+  'We received helpful suggestions while choosing the idol.',
+  'Customer service was friendly and straightforward.',
+  'The staff explained a few design differences when we asked.',
+  'They were helpful when we wanted to compare two murtis.',
+  'We got clear answers about Shadu Mati and visarjan suitability.',
+  'The team assisted us with carrying and checking the murti.',
+  'Helpful staff made the selection process less confusing.',
+  'They listened to what we needed and pointed us to suitable options.',
+  'Service was professional and respectful throughout the visit.',
+  'We were guided calmly even when we changed our mind once.',
+  'The staff checked the murti with us before we finalized.',
+  'Questions about customization were handled clearly.',
+  'They helped us understand which size would fit our mandap.',
+  'Customer service felt genuine rather than pushy.',
+  'The team was available when we needed a second opinion.',
+  'We appreciated the patient approach from the staff.',
+  'Helpful guidance made our Ganpati festival purchase easier.',
+];
+
+export const ECO_STATEMENTS = [
+  'We valued that the murti is an eco-friendly Shadu Mati Ganpati idol.',
+  'The eco-friendly aspect was important to us for visarjan.',
+  'Shadu Mati material was exactly what we wanted for an eco-friendly murti.',
+  'Choosing an eco-friendly Ganpati murti mattered for our family tradition.',
+  'The Shadu Mati Ganpati option aligned with our preference for natural material.',
+  'We liked that Bappaji.com focuses on eco-friendly Ganpati idols.',
+  'An eco-friendly Ganpati idol from Shadu Mati felt like the right choice.',
+  'The eco-friendly murti suited our plan for a respectful visarjan.',
+];
+
+export const CUSTOMIZATION_STATEMENTS = [
+  'They explained customization options where applicable.',
+  'We asked about a few customization details before deciding.',
+  'Customization was discussed clearly when we enquired.',
+  'Minor customization requests were handled without confusion.',
+];
+
+export const CLOSINGS = [
+  'Overall, it was a good experience for us.',
+  'We were happy with our visit and the murti we picked.',
+  'We would consider visiting again when we need another idol.',
+  'It worked well for what we needed this Ganpati festival.',
+  'A decent experience from start to finish.',
+  'We left satisfied with both the idol and the service.',
+  'Happy with our purchase and the overall visit.',
+  'The experience met our expectations for this festival season.',
+  'We felt our time at Bappaji.com was worthwhile.',
+  'Overall buying experience was positive and hassle-free.',
+  'We are glad we chose Bappaji.com for our Ganpati murti.',
+  'Would recommend others to visit and see the idols in person.',
+  'Our visit ended on a good note with the murti we wanted.',
+  'Satisfied with the idol quality and the help we received.',
+  'It was a pleasant stop for our Ganpati festival shopping.',
+  'We had a good experience and a murti we are happy with.',
+  'Overall, Bappaji.com worked well for our needs.',
+  'The visit and purchase process felt smooth overall.',
+  'We walked away with a murti we liked and clear answers to our questions.',
+  'A solid experience for anyone looking for a Shadu Mati Ganpati murti.',
+];
+
+/** Natural keyword phrases — embedded via sentences above; listed for AI backend prompts. */
+export const KEYWORD_POOL = [
+  'Bappaji.com',
+  'Shadu Mati Ganpati',
+  'eco-friendly Ganpati idol',
+  'eco-friendly Ganpati murti',
+  'Shadu Mati Ganpati murti',
+  'Ganpati idol',
+  'beautiful Ganpati idol',
+  'traditional Ganpati design',
+  'idol quality',
+  'helpful staff',
+  'customer service',
+  'customization',
+  'Ganpati festival',
+  'overall buying experience',
+];
+
+/** Review style profiles — English only, controls tone and length. */
+export const STYLE_PROFILES = [
+  { id: 'short_simple', tone: 'short', minWords: 30, maxWords: 45, eco: 0.3, service: 0.5 },
+  { id: 'product_focus', tone: 'product', minWords: 40, maxWords: 65, eco: 0.35, service: 0.4 },
+  { id: 'eco_focus', tone: 'eco', minWords: 45, maxWords: 72, eco: 0.9, service: 0.45 },
+  { id: 'traditional', tone: 'traditional', minWords: 42, maxWords: 68, eco: 0.4, service: 0.5 },
+  { id: 'family', tone: 'warm', minWords: 48, maxWords: 78, eco: 0.35, service: 0.65 },
+  { id: 'service_focus', tone: 'service', minWords: 42, maxWords: 70, eco: 0.25, service: 0.95 },
+  { id: 'warm', tone: 'warm', minWords: 38, maxWords: 62, eco: 0.3, service: 0.7 },
+  { id: 'professional', tone: 'professional', minWords: 45, maxWords: 75, eco: 0.35, service: 0.75 },
+  { id: 'emotional', tone: 'warm', minWords: 50, maxWords: 80, eco: 0.4, service: 0.6 },
+  { id: 'balanced', tone: 'balanced', minWords: 40, maxWords: 68, eco: 0.5, service: 0.6 },
+];
+
+/** Sentence order patterns — changes structure, not just vocabulary. */
+export const STRUCTURE_PATTERNS = [
+  ['opening', 'product', 'service', 'closing'],
+  ['opening', 'eco', 'product', 'closing'],
+  ['opening', 'product', 'experience', 'closing'],
+  ['opening', 'service', 'product', 'closing'],
+  ['opening', 'product', 'customization', 'service', 'closing'],
+  ['opening', 'experience', 'product', 'service', 'closing'],
+  ['opening', 'eco', 'product', 'service', 'closing'],
+  ['product', 'opening', 'service', 'closing'],
+  ['opening', 'product', 'eco', 'closing'],
+  ['opening', 'service', 'experience', 'product', 'closing'],
+];

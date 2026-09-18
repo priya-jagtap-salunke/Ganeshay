@@ -1,14 +1,19 @@
 import { useMemo, useState } from 'react';
 import { StyleSheet, FlatList, Alert, View } from 'react-native';
+import * as DocumentPicker from 'expo-document-picker';
 import { Searchbar, Text } from 'react-native-paper';
-import { useRouter, type Href } from 'expo-router';
 import { AppButton } from '@/components/ui/AppButton';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { LoadingOverlay } from '@/components/ui/LoadingOverlay';
 import {
+  useImportTelecallingContacts,
   useRecordMessageOutcome,
   useTelecallingContacts,
 } from '@/features/telecalling/hooks/useTelecallingContacts';
+import {
+  EXCEL_FORMAT_HINT,
+  parseTelecallingExcel,
+} from '@/features/telecalling/utils/parseExcelContacts';
 import { TelecallingContact } from '@/types/telecalling';
 import {
   TeleMessagingFilterId,
@@ -43,14 +48,24 @@ function uniqueContacts(list: TelecallingContact[]): TelecallingContact[] {
   return unique;
 }
 
+function confirmExcelFormatThenPick(): Promise<boolean> {
+  return new Promise((resolve) => {
+    Alert.alert('Upload Excel', EXCEL_FORMAT_HINT, [
+      { text: 'Cancel', style: 'cancel', onPress: () => resolve(false) },
+      { text: 'Choose file', onPress: () => resolve(true) },
+    ]);
+  });
+}
+
 export function TeleMessagingPanel() {
-  const router = useRouter();
   const settings = useSettingsStore();
   const { data: contacts, isLoading } = useTelecallingContacts();
+  const importMutation = useImportTelecallingContacts();
   const recordOutcome = useRecordMessageOutcome();
 
   const [filter, setFilter] = useState<TeleMessagingFilterId>('pending');
   const [searchQuery, setSearchQuery] = useState('');
+  const [importing, setImporting] = useState(false);
 
   const contactCount = contacts?.length ?? 0;
 
@@ -157,6 +172,50 @@ export function TeleMessagingPanel() {
     ]);
   };
 
+  const runExcelImport = async () => {
+    setImporting(true);
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: [
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          'application/vnd.ms-excel',
+          '*/*',
+        ],
+        copyToCacheDirectory: true,
+        multiple: false,
+      });
+
+      if (result.canceled || !result.assets[0]?.uri) return;
+
+      const parsed = await parseTelecallingExcel(result.assets[0].uri);
+      const { inserted, skippedExisting } = await importMutation.mutateAsync(
+        parsed.contacts
+      );
+
+      Alert.alert(
+        'Import complete',
+        `Saved ${inserted.length} new.` +
+          (skippedExisting ? ` Skipped ${skippedExisting} existing.` : '') +
+          (parsed.skippedInvalid
+            ? ` Skipped ${parsed.skippedInvalid} invalid.`
+            : '') +
+          (parsed.skippedDuplicateInFile
+            ? ` Skipped ${parsed.skippedDuplicateInFile} duplicates in file.`
+            : '')
+      );
+    } catch (err) {
+      Alert.alert('Import failed', getErrorMessage(err));
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  const handleImportExcel = async () => {
+    const proceed = await confirmExcelFormatThenPick();
+    if (!proceed) return;
+    await runExcelImport();
+  };
+
   if (isLoading && !contacts) {
     return (
       <View style={styles.root}>
@@ -172,25 +231,28 @@ export function TeleMessagingPanel() {
         ? 'No pending contacts. Everyone here is already in Sent.'
         : 'No sent contacts yet. Send WhatsApp from Pending.';
 
+  const busy = importing || importMutation.isPending;
+
   return (
     <View style={styles.root}>
+      <LoadingOverlay visible={busy} />
       <View style={styles.header}>
         <Text variant="bodyMedium" style={{ color: colors.textSecondary }}>
           {contactCount === 0
             ? 'Import contacts first. The same list appears here for WhatsApp messaging.'
             : `${contactCount} contact${contactCount === 1 ? '' : 's'} · Send → details · auto-moves to Sent`}
         </Text>
-        {contactCount === 0 ? (
-          <AppButton
-            icon="account-arrow-up-outline"
-            variant="tonal"
-            compact
-            onPress={() => router.push('/(app)/import-contacts' as Href)}
-            style={{ alignSelf: 'flex-start', marginTop: spacing.sm }}
-          >
-            Import Contacts
-          </AppButton>
-        ) : null}
+        <AppButton
+          icon="file-excel"
+          variant="tonal"
+          compact
+          onPress={handleImportExcel}
+          loading={busy}
+          disabled={busy}
+          style={styles.importBtn}
+        >
+          Import Excel
+        </AppButton>
       </View>
 
       <Searchbar
@@ -234,6 +296,10 @@ const styles = StyleSheet.create({
   },
   header: {
     marginBottom: spacing.sm,
+  },
+  importBtn: {
+    alignSelf: 'flex-start',
+    marginTop: spacing.sm,
   },
   search: {
     marginBottom: spacing.sm,

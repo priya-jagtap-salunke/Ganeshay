@@ -1,0 +1,231 @@
+:root {
+  --brand-red: #b22234;
+  --brand-red-dark: #8b0000;
+  --brand-gold: #d4af37;
+  --bg: #fff8f5;
+  --surface: #ffffff;
+  --text: #1c1b1f;
+  --text-muted: #49454f;
+  --border: #e7e0ec;
+  --notice-bg: #fff3e0;
+  --notice-border: #ffcc80;
+  --draft-bg: #faf7f5;
+  --shadow: 0 8px 24px rgba(26, 26, 26, 0.08);
+  --radius: 16px;
+  --max-width: 560px;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  min-height: 100dvh;
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial,
+    sans-serif;
+  background: linear-gradient(180deg, #fff1ee 0%, var(--bg) 28%, var(--bg) 100%);
+  color: var(--text);
+  line-height: 1.5;
+}
+
+.page {
+  max-width: var(--max-width);
+  margin: 0 auto;
+  padding: 20px 16px 32px;
+}
+
+.header {
+  text-align: center;
+  margin-bottom: 20px;
+}
+
+.brand {
+  display: inline-block;
+  font-size: 1.35rem;
+  font-weight: 700;
+  color: var(--brand-red);
+  letter-spacing: 0.2px;
+  margin-bottom: 8px;
+}
+
+.title {
+  margin: 0 0 8px;
+  font-size: 1.55rem;
+  line-height: 1.25;
+  color: var(--text);
+}
+
+.subtitle {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.98rem;
+}
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 16px;
+  margin-bottom: 16px;
+}
+
+.draft-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.draft-label h2 {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.badge {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--brand-red-dark);
+  background: #ffdad6;
+  border-radius: 999px;
+  padding: 4px 10px;
+  white-space: nowrap;
+}
+
+.draft-input {
+  width: 100%;
+  min-height: 180px;
+  resize: vertical;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px;
+  font: inherit;
+  font-size: 1rem;
+  line-height: 1.55;
+  color: var(--text);
+  background: var(--draft-bg);
+}
+
+.draft-input:focus {
+  outline: 2px solid rgba(178, 34, 52, 0.25);
+  border-color: var(--brand-red);
+}
+
+.draft-input[readonly] {
+  cursor: default;
+}
+
+.notice {
+  background: var(--notice-bg);
+  border: 1px solid var(--notice-border);
+  border-radius: 12px;
+  padding: 12px 14px;
+  font-size: 0.88rem;
+  color: #5d4037;
+  margin-bottom: 16px;
+}
+
+.notice-inline {
+  margin: 12px 0 0;
+}
+
+.actions {
+  display: grid;
+  gap: 10px;
+}
+
+.btn {
+  appearance: none;
+  border: none;
+  border-radius: 12px;
+  padding: 14px 16px;
+  font: inherit;
+  font-size: 0.98rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 0.12s ease, opacity 0.12s ease;
+}
+
+.btn:active {
+  transform: scale(0.98);
+}
+
+.btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.btn-primary {
+  background: var(--brand-red);
+  color: #fff;
+}
+
+.btn-secondary {
+  background: #f6e8e6;
+  color: var(--brand-red-dark);
+}
+
+.btn-outline {
+  background: #fff;
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+
+.btn-google {
+  background: linear-gradient(135deg, var(--brand-red), var(--brand-red-dark));
+  color: #fff;
+}
+
+.footer-note {
+  margin-top: 18px;
+  text-align: center;
+  font-size: 0.82rem;
+  color: var(--text-muted);
+}
+
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: 20px;
+  transform: translateX(-50%) translateY(16px);
+  background: #1c1b1f;
+  color: #fff;
+  padding: 10px 16px;
+  border-radius: 999px;
+  font-size: 0.88rem;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+  z-index: 20;
+}
+
+.toast.show {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
+@media (min-width: 480px) {
+  .page {
+    padding-top: 28px;
+  }
+
+  .actions {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .actions .btn-google {
+    grid-column: 1 / -1;
+  }
+}

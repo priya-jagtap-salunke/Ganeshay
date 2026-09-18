@@ -103,11 +103,21 @@ export async function generatePdfBlobUrlFromHtml(html: string): Promise<string> 
 
   await new Promise((resolve) => setTimeout(resolve, 200));
 
+  // Scale down only if content exceeds one A4 page — keeps layout identical.
+  const maxPageHeight = 1060;
+  const contentHeight = root.scrollHeight;
+  if (contentHeight > maxPageHeight) {
+    const scale = maxPageHeight / contentHeight;
+    root.style.transform = `scale(${scale})`;
+    root.style.transformOrigin = 'top center';
+    root.style.marginBottom = `${-(contentHeight * (1 - scale))}px`;
+  }
+
   try {
     const html2pdf = await loadHtml2Pdf();
     const blob = await html2pdf()
       .set({
-        margin: [10, 10, 10, 10],
+        margin: [8, 8, 8, 8],
         filename: 'receipt.pdf',
         image: { type: 'jpeg', quality: 0.98 },
         html2canvas: {
@@ -122,7 +132,7 @@ export async function generatePdfBlobUrlFromHtml(html: string): Promise<string> 
           backgroundColor: '#FFFAF5',
         },
         jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
-        pagebreak: { mode: ['avoid-all', 'css', 'legacy'] },
+        pagebreak: { mode: ['avoid-all'] },
       })
       .from(root)
       .outputPdf('blob');

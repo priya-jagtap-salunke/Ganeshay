@@ -21,7 +21,55 @@ function radius(forNativePdf: boolean, value: string): string {
   return forNativePdf ? '' : `border-radius:${value};`;
 }
 
-function receiptStyles(forNativePdf: boolean): string {
+function singlePageFitStyles(forNativePdf: boolean): string {
+  const nativeScale = forNativePdf
+    ? `#invoice-root.single-page-fit {
+      transform: scale(0.96);
+      transform-origin: top center;
+    }`
+    : '';
+
+  return `
+    @page { size: A4 portrait; margin: 5mm; }
+    #invoice-root.single-page-fit {
+      page-break-inside: avoid;
+      break-inside: avoid;
+      page-break-after: avoid;
+    }
+    ${nativeScale}
+    #invoice-root.single-page-fit .pad { padding: 8px 14px 6px; }
+    #invoice-root.single-page-fit .section-card { margin-bottom: 5px; }
+    #invoice-root.single-page-fit .meta-strip { padding: 6px 8px; margin-bottom: 6px; }
+    #invoice-root.single-page-fit .section-body { padding: 6px 8px; }
+    #invoice-root.single-page-fit .section-head { padding: 5px 8px; }
+    #invoice-root.single-page-fit .footer-block { margin-top: 4px; padding-top: 5px; }
+    #invoice-root.single-page-fit .notes-box { margin-bottom: 5px; padding: 5px 8px; }
+    #invoice-root.single-page-fit .biz-name { font-size: 18px; }
+    #invoice-root.single-page-fit .phone-number { font-size: 16px; }
+    #invoice-root.single-page-fit .title-ribbon { padding: 5px 18px; font-size: 12px; }
+    #invoice-root.single-page-fit .pay-table td { padding: 4px 6px; }
+    #invoice-root.single-page-fit .pay-balance .pay-val { font-size: 14px; }
+    #invoice-root.single-page-fit .footer-mantra { font-size: 12px; margin-bottom: 2px; }
+    #invoice-root.single-page-fit .footer-thanks { font-size: 10px; margin-bottom: 3px; }
+    #invoice-root.single-page-fit .footer-care { font-size: 12px; }
+    #invoice-root.single-page-fit .logo-frame img {
+      height: 46px !important;
+      max-height: 46px !important;
+    }
+    #invoice-root.single-page-fit .murti-photo-wrap,
+    #invoice-root.single-page-fit .murti-photo-wrap img {
+      width: 118px !important;
+      max-width: 118px !important;
+      height: 118px !important;
+      max-height: 118px !important;
+    }
+    #invoice-root.single-page-fit .murti-name { font-size: 13px; margin-bottom: 3px; }
+    #invoice-root.single-page-fit .murti-sub { font-size: 9px; margin-bottom: 1px; }
+    #invoice-root.single-page-fit .qr-card { padding: 4px 6px; }
+  `;
+}
+
+function receiptStyles(forNativePdf: boolean, fitSinglePage = false): string {
   const r6 = forNativePdf ? '0' : '6px';
   const r8 = forNativePdf ? '0' : '8px';
   const r10 = forNativePdf ? '0' : '10px';
@@ -346,6 +394,7 @@ function receiptStyles(forNativePdf: boolean): string {
       border: none;
       margin: 2px 0 6px;
     }
+    ${fitSinglePage ? singlePageFitStyles(forNativePdf) : ''}
   </style>`;
 }
 
@@ -362,7 +411,8 @@ export function buildReceiptHtmlBody(
   qrMarkup: string,
   logoMarkup: string,
   forNativePdf = false,
-  murtiPhotoMarkup = ''
+  murtiPhotoMarkup = '',
+  fitSinglePage = false
 ): string {
   const tagline = escapeHtml(BRAND_TAGLINE);
   const businessName = escapeHtml(
@@ -410,8 +460,8 @@ export function buildReceiptHtmlBody(
     ? `<div class="notes-box"><strong style="color:#7B1E1E;">Notes:</strong> ${notes}</div>`
     : '';
 
-  return `${receiptStyles(forNativePdf)}
-<div id="invoice-root">
+  return `${receiptStyles(forNativePdf, fitSinglePage)}
+<div id="invoice-root"${fitSinglePage ? ' class="single-page-fit"' : ''}>
   <div class="frame-outer">
     <div class="frame-inner">
       <div class="pad">
