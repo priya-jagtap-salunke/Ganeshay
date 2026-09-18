@@ -270,13 +270,6 @@ export default function DashboardScreen() {
                 onPress={() => router.push('/(app)/telemessaging' as Href)}
               />
               <QuickAction
-                icon="account-arrow-up-outline"
-                label="Import Contacts"
-                color={theme.colors.secondary}
-                width={actionWidth}
-                onPress={() => router.push('/(app)/import-contacts' as Href)}
-              />
-              <QuickAction
                 icon="cog"
                 label="Settings"
                 color={theme.colors.onSurfaceVariant}

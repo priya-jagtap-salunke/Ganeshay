@@ -6,6 +6,7 @@ import { AppButton } from '@/components/ui/AppButton';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { LoadingOverlay } from '@/components/ui/LoadingOverlay';
 import {
+  useDeleteAllTelecallingContacts,
   useImportTelecallingContacts,
   useRecordMessageOutcome,
   useTelecallingContacts,
@@ -59,8 +60,14 @@ function confirmExcelFormatThenPick(): Promise<boolean> {
 
 export function TeleMessagingPanel() {
   const settings = useSettingsStore();
-  const { data: contacts, isLoading } = useTelecallingContacts();
+  const {
+    data: contacts,
+    isLoading,
+    isRefetching,
+    refetch,
+  } = useTelecallingContacts();
   const importMutation = useImportTelecallingContacts();
+  const deleteAllContacts = useDeleteAllTelecallingContacts();
   const recordOutcome = useRecordMessageOutcome();
 
   const [filter, setFilter] = useState<TeleMessagingFilterId>('pending');
@@ -216,6 +223,48 @@ export function TeleMessagingPanel() {
     await runExcelImport();
   };
 
+  const handleRefresh = async () => {
+    try {
+      await refetch();
+    } catch (err) {
+      Alert.alert('Refresh failed', getErrorMessage(err));
+    }
+  };
+
+  const handleClearAllContacts = () => {
+    if (contactCount === 0) {
+      Alert.alert('No contacts', 'There are no contacts to clear.');
+      return;
+    }
+
+    Alert.alert(
+      'Clear all contacts?',
+      `Delete all ${contactCount} contacts from Tele-Messaging?\n\nThe same list is shared with Tele-calling. You can import again afterward.\n\nThis cannot be undone.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Clear all',
+          style: 'destructive',
+          onPress: () => {
+            deleteAllContacts.mutate(undefined, {
+              onSuccess: (deleted) => {
+                setFilter('pending');
+                setSearchQuery('');
+                Alert.alert(
+                  'Contacts cleared',
+                  deleted > 0
+                    ? `Removed ${deleted} contacts. You can import again now.`
+                    : 'No contacts were left to remove.'
+                );
+              },
+              onError: (err) => Alert.alert('Error', getErrorMessage(err)),
+            });
+          },
+        },
+      ]
+    );
+  };
+
   if (isLoading && !contacts) {
     return (
       <View style={styles.root}>
@@ -231,7 +280,11 @@ export function TeleMessagingPanel() {
         ? 'No pending contacts. Everyone here is already in Sent.'
         : 'No sent contacts yet. Send WhatsApp from Pending.';
 
-  const busy = importing || importMutation.isPending;
+  const busy =
+    importing ||
+    importMutation.isPending ||
+    deleteAllContacts.isPending ||
+    isRefetching;
 
   return (
     <View style={styles.root}>
@@ -242,17 +295,44 @@ export function TeleMessagingPanel() {
             ? 'Import contacts first. The same list appears here for WhatsApp messaging.'
             : `${contactCount} contact${contactCount === 1 ? '' : 's'} · Send → details · auto-moves to Sent`}
         </Text>
-        <AppButton
-          icon="file-excel"
-          variant="tonal"
-          compact
-          onPress={handleImportExcel}
-          loading={busy}
-          disabled={busy}
-          style={styles.importBtn}
-        >
-          Import Excel
-        </AppButton>
+        <View style={styles.actionRow}>
+          <AppButton
+            icon="file-excel"
+            variant="tonal"
+            compact
+            onPress={handleImportExcel}
+            loading={busy}
+            disabled={busy}
+            style={styles.actionBtn}
+          >
+            Import Excel
+          </AppButton>
+          <AppButton
+            icon="refresh"
+            variant="outline"
+            compact
+            onPress={handleRefresh}
+            loading={isRefetching}
+            disabled={busy}
+            style={styles.actionBtn}
+          >
+            Refresh
+          </AppButton>
+          {contactCount > 0 ? (
+            <AppButton
+              icon="delete-sweep-outline"
+              variant="outline"
+              compact
+              onPress={handleClearAllContacts}
+              loading={deleteAllContacts.isPending}
+              disabled={busy}
+              style={styles.actionBtn}
+              labelStyle={styles.clearLabel}
+            >
+              Clear
+            </AppButton>
+          ) : null}
+        </View>
       </View>
 
       <Searchbar
@@ -297,9 +377,17 @@ const styles = StyleSheet.create({
   header: {
     marginBottom: spacing.sm,
   },
-  importBtn: {
-    alignSelf: 'flex-start',
+  actionRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
     marginTop: spacing.sm,
+  },
+  actionBtn: {
+    marginVertical: 0,
+  },
+  clearLabel: {
+    color: colors.error,
   },
   search: {
     marginBottom: spacing.sm,
