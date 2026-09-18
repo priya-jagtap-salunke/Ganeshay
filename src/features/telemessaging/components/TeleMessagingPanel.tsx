@@ -167,7 +167,7 @@ export function TeleMessagingPanel() {
 
   const emptyMessage =
     contactCount === 0
-      ? 'Import contacts in Tele-calling first. The same list appears here for WhatsApp messaging.'
+      ? 'Import contacts first. The same list appears here for WhatsApp messaging.'
       : filter === 'pending'
         ? 'No pending contacts. Everyone here is already in Sent.'
         : 'No sent contacts yet. Send WhatsApp from Pending.';
@@ -177,18 +177,18 @@ export function TeleMessagingPanel() {
       <View style={styles.header}>
         <Text variant="bodyMedium" style={{ color: colors.textSecondary }}>
           {contactCount === 0
-            ? 'Import contacts from Tele-calling first. The same list appears here for WhatsApp messaging.'
+            ? 'Import contacts first. The same list appears here for WhatsApp messaging.'
             : `${contactCount} contact${contactCount === 1 ? '' : 's'} · Send → details · auto-moves to Sent`}
         </Text>
         {contactCount === 0 ? (
           <AppButton
-            icon="phone-outgoing"
+            icon="account-arrow-up-outline"
             variant="tonal"
             compact
-            onPress={() => router.push('/(app)/telecalling' as Href)}
+            onPress={() => router.push('/(app)/import-contacts' as Href)}
             style={{ alignSelf: 'flex-start', marginTop: spacing.sm }}
           >
-            Open Tele-calling
+            Import Contacts
           </AppButton>
         ) : null}
       </View>
