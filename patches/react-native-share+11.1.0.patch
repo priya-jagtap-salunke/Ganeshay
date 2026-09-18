@@ -273,7 +273,7 @@ index 17fb272..bae1b43 100644
      protected String getPackage() {
          return PACKAGE;
 diff --git a/node_modules/react-native-share/ios/WhatsAppShare.m b/node_modules/react-native-share/ios/WhatsAppShare.m
-index e298cd6..4461821 100644
+index e298cd6..4de0b33 100644
 --- a/node_modules/react-native-share/ios/WhatsAppShare.m
 +++ b/node_modules/react-native-share/ios/WhatsAppShare.m
 @@ -2,8 +2,10 @@
@@ -325,7 +325,7 @@ index e298cd6..4461821 100644
      
      switch(messageType) {
        case MessageTypeImage:
-@@ -45,51 +58,179 @@ resolve:(RCTPromiseResolveBlock)resolve {
+@@ -45,51 +58,169 @@ resolve:(RCTPromiseResolveBlock)resolve {
          [self tryToSendVideo: options resolve:resolve reject:reject];
          break;
  
@@ -509,27 +509,17 @@ index e298cd6..4461821 100644
 +  if (!pdfPath) {
 +    return [self handleError:@"Could not prepare PDF for WhatsApp" code:2 rejectFn:reject];
 +  }
-+
-+  // Optional: open this contact first so WhatsApp is ready for the PDF.
-+  NSString *whatsAppNumber = [RCTConvert NSString:options[@"whatsAppNumber"]];
-+  NSString *digits = [[whatsAppNumber componentsSeparatedByCharactersInSet:
-+    [[NSCharacterSet decimalDigitCharacterSet] invertedSet]] componentsJoinedByString:@""];
-+  if (digits.length >= 10) {
-+    NSString *openChat = [NSString stringWithFormat:@"whatsapp://send?phone=%@", digits];
-+    NSURL *chatURL = [NSURL URLWithString:openChat];
-+    if (chatURL && [[UIApplication sharedApplication] canOpenURL:chatURL]) {
-+      [[UIApplication sharedApplication] openURL:chatURL options:@{} completionHandler:nil];
-+    }
-+  }
  
 -  NSLog(@"Sending whatsapp movie");
 -  [self shareMedia:options[@"url"] documentUTI:@"net.whatsapp.movie"];
 -  NSLog(@"Done whatsapp movie");
++  // Present Open In while our app is still foreground — opening whatsapp:// first
++  // backgrounds the app and leaves a blank chat with no PDF attached.
 +  [self presentOpenInForFile:pdfPath uti:@"com.adobe.pdf"];
    resolve(@[@true, @""]);
  }
  
-@@ -98,23 +239,50 @@ resolve:(RCTPromiseResolveBlock)resolve {
+@@ -98,23 +229,50 @@ resolve:(RCTPromiseResolveBlock)resolve {
               reject:(RCTPromiseRejectBlock)reject {
    
    NSString *text = [RCTConvert NSString:options[@"message"]];
@@ -584,7 +574,7 @@ index e298cd6..4461821 100644
    if([self isMediaType:url mediaExtensions: imageExtensions]){
      return MessageTypeImage;
    }
-@@ -138,39 +306,29 @@ resolve:(RCTPromiseResolveBlock)resolve {
+@@ -138,39 +296,29 @@ resolve:(RCTPromiseResolveBlock)resolve {
  
  -(BOOL)isWhatsAppAvailable {
    if([[UIApplication sharedApplication] canOpenURL: [NSURL URLWithString:@"whatsapp://app"]]) {
