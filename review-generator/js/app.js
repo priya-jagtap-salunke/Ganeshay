@@ -31,7 +31,8 @@ function setReadOnly(readonly) {
   editBtn.textContent = readonly ? 'Edit Review' : 'Done Editing';
 }
 
-async function loadUniqueDraft() {
+/** One fresh draft per call — used by Generate and before Review on Google. */
+async function generateFreshDraft() {
   generateBtn.disabled = true;
   editBtn.disabled = true;
   copyBtn.disabled = true;
@@ -46,15 +47,21 @@ async function loadUniqueDraft() {
     sessionHistory = result.history ?? sessionHistory;
     setDraft(result.draft);
     setReadOnly(true);
+    return true;
   } catch (err) {
     console.error(err);
-    showToast('Could not generate draft. Try again.');
+    return false;
   } finally {
     generateBtn.disabled = false;
     editBtn.disabled = false;
     copyBtn.disabled = false;
     googleBtn.disabled = false;
   }
+}
+
+async function loadUniqueDraft() {
+  const ok = await generateFreshDraft();
+  if (!ok) showToast('Could not generate draft. Try again.');
 }
 
 function handleEdit() {
@@ -86,12 +93,19 @@ async function handleCopy() {
   }
 }
 
-function handleGoogleReview() {
+async function handleGoogleReview() {
   const url = GOOGLE_REVIEW_URL.trim();
   if (!url || url.includes('PASTE_MY_GOOGLE_REVIEW_LINK_HERE')) {
     showToast('Google Review URL is not configured yet.');
     return;
   }
+
+  const ok = await generateFreshDraft();
+  if (!ok) {
+    showToast('Could not generate draft. Try again.');
+    return;
+  }
+
   window.open(url, '_blank', 'noopener,noreferrer');
 }
 

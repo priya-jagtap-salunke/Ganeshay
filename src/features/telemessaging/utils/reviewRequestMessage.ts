@@ -8,12 +8,12 @@ export const DEFAULT_REVIEW_REQUEST_MESSAGE = `🙏 **गणपती बाप�
 आपल्याला आमची मूर्ती आणि सेवा आवडली असल्यास, कृपया **Google Maps वर आपला अनुभव आणि Review** शेअर करा. ⭐⭐⭐⭐⭐
 
 📍 **Google Review:**
-https://maps.app.goo.gl/xbENsAo5Eq9R4c739?g_st=ic
+https://happymanventures.com/review-generator/review-generator.html
 
 तसेच नवीन मूर्ती, अपडेट्स आणि सुंदर क्षणांसाठी
 
 📸 **Instagram वर Follow करा:**
-https://www.instagram.com/bappaji_com
+https://www.instagram.com/bapp
 
 आपला एक छोटासा **Review आणि Follow**
 आमच्यासाठी खूप मोठे प्रोत्साहन आहे. 🙏❤️
@@ -22,3 +22,13 @@ https://www.instagram.com/bappaji_com
 **आम्ही साकारतो तुमच्या मनातला बाप्पा!** ❤️🙏
 
 🚩 **गणपती बाप्पा मोरया!** 🚩`;
+
+/** Settings value or default — same text for every contact; content unchanged. */
+export function resolveConfiguredReviewRequestMessage(
+  stored: string | undefined | null
+): string {
+  if (typeof stored === 'string' && stored.trim().length > 0) {
+    return stored;
+  }
+  return DEFAULT_REVIEW_REQUEST_MESSAGE;
+}

@@ -191,3 +191,63 @@ export const STRUCTURE_PATTERNS = [
   ['opening', 'product', 'eco', 'closing'],
   ['opening', 'service', 'experience', 'product', 'closing'],
 ];
+
+/** Marathi short-review fragments — combined at runtime (not fixed templates). */
+export const MR_OPENINGS = [
+  'Bappaji.com वरून बाप्पांची मूर्ती घेतली.',
+  'Bappaji.com मधून आम्हाला गणेशमूर्ती मिळाली.',
+  'Bappaji.com वर booking करून मूर्ती निवडली.',
+  'आम्ही Bappaji.com ला भेट देऊन मूर्ती निवडली.',
+  'Bappaji.com कडून शाडू मातीची गणेशमूर्ती घेतली.',
+  'या वर्षी Bappaji.com वरून बाप्पा घेतला.',
+  'Bappaji.com वर जाऊन आम्हाला मनासारखी मूर्ती मिळाली.',
+  'Bappaji.com वरून eco-friendly गणेशमूर्ती घेतली.',
+];
+
+export const MR_IDOL_QUALITY = [
+  'मूर्ती खूप सुंदर आणि नयनरम्य होती.',
+  'मूर्तीची finishing अतिशय छान होती.',
+  'डिझाइन्स सुंदर आणि आकर्षक होते.',
+  'मूर्तीचा दर्जा खूप चांगला वाटला.',
+  'निवडलेली मूर्ती अगदी मनासारखी होती.',
+  'मूर्तीचे traditional look आम्हाला खूप आवडले.',
+  'मूर्तीचा look आणि proportion दोन्ही छान होते.',
+];
+
+export const MR_ECO = [
+  'Eco-friendly शाडू मातीच्या मूर्तींचे पर्याय मोहक होते.',
+  'Visarjanासाठी eco-friendly मूर्ती हवी होती — Bappaji.com योग्य ठरले.',
+  'शाडू मातीच्या eco-friendly मूर्तींची variety आम्हाला आवडली.',
+  'Natural material ची मूर्ती घेतल्याने visarjan सोपे वाटले.',
+];
+
+export const MR_SERVICE = [
+  'Staff ने निवडीत मदत केली आणि प्रश्नांची उत्तरे स्पष्ट दिली.',
+  'Service friendly होती आणि rush नव्हते.',
+  'Team ने sizes आणि designs समजावून सांगितले.',
+  'Customer service prompt आणि helpful होती.',
+  'Bappaji.com ची service आणि मूर्तींची variety आम्हाला आवडली.',
+];
+
+export const MR_BOOKING = [
+  'Booking process सोपा आणि smooth होता.',
+  'संपूर्ण booking experience छान राहिला.',
+  'Online booking नंतर showroom visit अगदी व्यवस्थित झाली.',
+  'Booking ते final selection पर्यंत सर्व काही organized होते.',
+];
+
+export const MR_OVERALL = [
+  'Bappaji.com चा overall experience खूप positive होता.',
+  'Overall experience satisfactory आणि stress-free होता.',
+  'आम्हाला Bappaji.com सोबतचा अनुभव खूप आवडला.',
+  'Purchase experience start to finish smooth होता.',
+];
+
+export const MR_CLOSINGS = [
+  'गणपती बाप्पा मोरया!',
+  'नक्कीच पुन्हा भेट देऊ.',
+  'आम्ही समाधानी आहोत.',
+  'या festival साठी चांगली निवड झाली.',
+];
+
+export const MR_EMOJI = ['🙏', '❤️', '🙏❤️', ''];

@@ -11,7 +11,7 @@ import {
 } from '@/features/receipt/utils/whatsappApp';
 import { buildStallDetailsWhatsAppMessage } from '@/features/telecalling/utils/stallDetailsWhatsAppMessage';
 import { useSettingsStore } from '@/features/settings/store/settingsStore';
-import { DEFAULT_REVIEW_REQUEST_MESSAGE } from '../utils/reviewRequestMessage';
+import { resolveConfiguredReviewRequestMessage } from '../utils/reviewRequestMessage';
 
 export interface TeleMessagingShareRecipient {
   mobile: string;
@@ -82,9 +82,9 @@ export async function shareReviewRequestMessageOnWhatsApp(
   recipient: TeleMessagingShareRecipient
 ): Promise<void> {
   const phone = formatWhatsAppPhone(recipient.mobile);
-  const message =
-    useSettingsStore.getState().reviewRequestMessage?.trim() ||
-    DEFAULT_REVIEW_REQUEST_MESSAGE;
+  const message = resolveConfiguredReviewRequestMessage(
+    useSettingsStore.getState().reviewRequestMessage
+  );
 
   if (!phone) {
     Alert.alert('Invalid Mobile', 'Customer mobile number is missing or invalid.');
