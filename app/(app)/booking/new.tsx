@@ -25,6 +25,9 @@ export default function NewBookingScreen() {
   const [savedBooking, setSavedBooking] = useState<Booking | null>(null);
   /** Sync lock — React state alone cannot block double-taps before re-render. */
   const saveLockRef = useRef(false);
+  /** Clears the form on next focus after a successful save (screen may stay mounted). */
+  const clearFormOnNextFocusRef = useRef(false);
+  const [formResetSignal, setFormResetSignal] = useState(0);
 
   useFocusEffect(
     useCallback(() => {
@@ -32,6 +35,11 @@ export default function NewBookingScreen() {
       setSavedBooking(null);
       setSaving(false);
       saveLockRef.current = false;
+
+      if (clearFormOnNextFocusRef.current) {
+        clearFormOnNextFocusRef.current = false;
+        setFormResetSignal((n) => n + 1);
+      }
     }, [])
   );
 
@@ -43,6 +51,8 @@ export default function NewBookingScreen() {
       const booking = await createBooking.mutateAsync(data);
       setSavedBooking(booking);
       setShowSuccess(true);
+      clearFormOnNextFocusRef.current = true;
+      setFormResetSignal((n) => n + 1);
       prefetchPdf(booking);
       // Keep lock after success until leaving the screen.
     } catch (err) {
@@ -82,6 +92,7 @@ export default function NewBookingScreen() {
           onSubmit={handleSubmit}
           isLoading={saving || showSuccess}
           resetOnFocus
+          resetSignal={formResetSignal}
           pickerSession={{ returnTo: 'booking-new' }}
         />
       </ScrollView>

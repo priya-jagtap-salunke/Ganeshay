@@ -31,11 +31,13 @@ interface BookingFormProps {
   isLoading?: boolean;
   submitLabel?: string;
   /**
-   * Clear fields when this form first mounts (new booking only).
-   * Must not run on every focus — returning from the system camera also
-   * re-focuses the screen and would wipe the captured murti photo.
+   * Clear fields on mount and when {@link resetSignal} changes (new booking only).
+   * Must not run on every navigation focus — returning from the system camera
+   * would wipe in-progress fields and the captured murti photo.
    */
   resetOnFocus?: boolean;
+  /** Increment after a successful save (or when re-opening New Booking) to clear the form. */
+  resetSignal?: number;
   /** Resume target if Android recreates the activity during murti photo pick. */
   pickerSession?: MurtiPhotoPickerSession;
 }
@@ -68,6 +70,7 @@ export function BookingForm({
   isLoading,
   submitLabel = 'Save Booking',
   resetOnFocus = false,
+  resetSignal = 0,
   pickerSession,
 }: BookingFormProps) {
   const {
@@ -86,22 +89,26 @@ export function BookingForm({
   });
 
   useEffect(() => {
+    if (!resetOnFocus) return;
+
     let cancelled = false;
 
     (async () => {
-      if (resetOnFocus) {
-        reset(getEmptyBookingDefaults());
+      const pendingUri = await consumePendingMurtiPhotoUri();
+      if (cancelled) return;
+
+      if (pendingUri) {
+        reset({ ...getEmptyBookingDefaults(), murti_photo_uri: pendingUri });
+        return;
       }
 
-      const pendingUri = await consumePendingMurtiPhotoUri();
-      if (cancelled || !pendingUri) return;
-      setValue('murti_photo_uri', pendingUri, { shouldDirty: true });
+      reset(getEmptyBookingDefaults());
     })();
 
     return () => {
       cancelled = true;
     };
-  }, [reset, resetOnFocus, setValue]);
+  }, [reset, resetOnFocus, resetSignal, setValue]);
 
   const price = watch('price') || 0;
   const advance = watch('advance') || 0;
