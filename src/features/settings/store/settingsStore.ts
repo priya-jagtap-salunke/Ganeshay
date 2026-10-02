@@ -35,6 +35,21 @@ export const useSettingsStore = create<SettingsState>()(
     {
       name: 'stall-settings',
       storage: createJSONStorage(() => AsyncStorage),
+      version: 1,
+      migrate: (persisted, version) => {
+        const state = persisted as SettingsState;
+        const review = state?.reviewRequestMessage;
+        if (
+          typeof review === 'string' &&
+          review.includes('maps.app.goo.gl/xbENsAo5Eq9R4c739')
+        ) {
+          return {
+            ...state,
+            reviewRequestMessage: DEFAULT_REVIEW_REQUEST_MESSAGE,
+          };
+        }
+        return state;
+      },
     }
   )
 );

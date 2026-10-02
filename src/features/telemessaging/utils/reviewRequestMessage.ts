@@ -13,7 +13,7 @@ https://happymanventures.com/review-generator/review-generator.html
 तसेच नवीन मूर्ती, अपडेट्स आणि सुंदर क्षणांसाठी
 
 📸 **Instagram वर Follow करा:**
-https://www.instagram.com/bapp
+https://www.instagram.com/bappaji_com
 
 आपला एक छोटासा **Review आणि Follow**
 आमच्यासाठी खूप मोठे प्रोत्साहन आहे. 🙏❤️
