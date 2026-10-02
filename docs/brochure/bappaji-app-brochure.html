@@ -1,0 +1,714 @@
+<!DOCTYPE html>
+<html lang="mr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Bappaji Booking App — Staff Brochure</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;0,9..40,800;1,9..40,400&family=Noto+Sans+Devanagari:wght@400;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --royal-red: #b22234;
+        --royal-red-dark: #8b0000;
+        --gold: #d4af37;
+        --gold-light: #f4e4bc;
+        --saffron: #ff8c00;
+        --ivory: #fff8f5;
+        --ivory-dark: #f5ede0;
+        --text: #1c1b1f;
+        --text-muted: #49454f;
+        --white: #ffffff;
+        --shadow: 0 12px 40px rgba(139, 0, 0, 0.12);
+        --radius: 20px;
+      }
+
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+
+      body {
+        font-family: 'DM Sans', 'Segoe UI', system-ui, sans-serif;
+        color: var(--text);
+        background: #e8e0dc;
+        line-height: 1.55;
+      }
+
+      .mr {
+        font-family: 'Noto Sans Devanagari', 'DM Sans', sans-serif;
+      }
+
+      /* —— Print: one “page” block per sheet —— */
+      @page {
+        size: A4 portrait;
+        margin: 0;
+      }
+
+      @media print {
+        body {
+          background: white;
+        }
+        .sheet {
+          box-shadow: none !important;
+          margin: 0 !important;
+          page-break-after: always;
+          break-after: page;
+        }
+        .sheet:last-child {
+          page-break-after: auto;
+        }
+        .no-print {
+          display: none !important;
+        }
+      }
+
+      .toolbar {
+        position: sticky;
+        top: 0;
+        z-index: 99;
+        background: var(--royal-red-dark);
+        color: white;
+        padding: 12px 20px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        flex-wrap: wrap;
+      }
+
+      .toolbar button {
+        background: var(--gold);
+        color: var(--royal-red-dark);
+        border: none;
+        font-weight: 700;
+        padding: 10px 20px;
+        border-radius: 999px;
+        cursor: pointer;
+        font-size: 14px;
+      }
+
+      .toolbar button:hover {
+        filter: brightness(1.05);
+      }
+
+      .wrap {
+        max-width: 820px;
+        margin: 24px auto 48px;
+        padding: 0 16px;
+      }
+
+      .sheet {
+        background: var(--white);
+        width: 100%;
+        min-height: 1122px;
+        max-width: 794px;
+        margin: 0 auto 32px;
+        border-radius: 8px;
+        box-shadow: var(--shadow);
+        overflow: hidden;
+        position: relative;
+      }
+
+      /* —— Cover —— */
+      .cover-hero {
+        background: linear-gradient(
+          145deg,
+          var(--royal-red-light, #d32f2f) 0%,
+          var(--royal-red) 45%,
+          var(--royal-red-dark) 100%
+        );
+        color: white;
+        padding: 48px 40px 56px;
+        position: relative;
+        overflow: hidden;
+      }
+
+      .cover-hero::before {
+        content: '';
+        position: absolute;
+        width: 280px;
+        height: 280px;
+        border-radius: 50%;
+        background: rgba(244, 228, 188, 0.15);
+        top: -120px;
+        right: -80px;
+      }
+
+      .cover-hero::after {
+        content: '';
+        position: absolute;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        height: 4px;
+        background: linear-gradient(90deg, transparent, var(--gold), transparent);
+      }
+
+      .eyebrow {
+        font-size: 11px;
+        letter-spacing: 0.2em;
+        text-transform: uppercase;
+        opacity: 0.92;
+        margin-bottom: 12px;
+        font-weight: 600;
+      }
+
+      .cover-title {
+        font-size: 42px;
+        font-weight: 800;
+        line-height: 1.1;
+        letter-spacing: -0.02em;
+        margin-bottom: 8px;
+      }
+
+      .cover-sub {
+        font-size: 18px;
+        opacity: 0.95;
+        font-weight: 500;
+        margin-bottom: 28px;
+      }
+
+      .cover-tagline {
+        font-size: 20px;
+        font-weight: 600;
+        line-height: 1.45;
+        max-width: 520px;
+        margin-bottom: 8px;
+      }
+
+      .cover-tagline-en {
+        font-size: 15px;
+        opacity: 0.88;
+        font-style: italic;
+        max-width: 480px;
+      }
+
+      .cover-body {
+        padding: 36px 40px 40px;
+        background: linear-gradient(180deg, var(--ivory) 0%, var(--white) 100%);
+      }
+
+      .benefit-grid {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 16px;
+        margin-bottom: 32px;
+      }
+
+      .benefit-card {
+        display: flex;
+        gap: 16px;
+        align-items: flex-start;
+        background: white;
+        border: 1px solid var(--gold-light);
+        border-radius: var(--radius);
+        padding: 18px 20px;
+        box-shadow: 0 4px 16px rgba(178, 34, 52, 0.06);
+      }
+
+      .benefit-icon {
+        width: 48px;
+        height: 48px;
+        border-radius: 14px;
+        background: linear-gradient(135deg, var(--gold-light), #fff);
+        border: 2px solid var(--gold);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 22px;
+        flex-shrink: 0;
+      }
+
+      .benefit-card h3 {
+        font-size: 16px;
+        color: var(--royal-red);
+        margin-bottom: 4px;
+        font-weight: 700;
+      }
+
+      .benefit-card p {
+        font-size: 14px;
+        color: var(--text-muted);
+      }
+
+      .cover-footer {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 20px;
+        align-items: center;
+        justify-content: space-between;
+        padding-top: 20px;
+        border-top: 2px dashed var(--gold-light);
+      }
+
+      .brand-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        background: var(--royal-red);
+        color: white;
+        padding: 10px 18px;
+        border-radius: 999px;
+        font-weight: 700;
+        font-size: 14px;
+      }
+
+      .links {
+        font-size: 13px;
+        color: var(--text-muted);
+        line-height: 1.8;
+      }
+
+      .links a {
+        color: var(--royal-red);
+        text-decoration: none;
+        font-weight: 600;
+      }
+
+      /* —— Inner pages —— */
+      .page-head {
+        background: var(--royal-red);
+        color: white;
+        padding: 28px 40px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+      }
+
+      .page-head h2 {
+        font-size: 26px;
+        font-weight: 800;
+      }
+
+      .page-num {
+        width: 44px;
+        height: 44px;
+        border-radius: 50%;
+        background: var(--gold);
+        color: var(--royal-red-dark);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: 800;
+        font-size: 18px;
+        flex-shrink: 0;
+      }
+
+      .page-content {
+        padding: 32px 40px 40px;
+      }
+
+      .intro-box {
+        background: linear-gradient(135deg, var(--ivory) 0%, var(--ivory-dark) 100%);
+        border-left: 5px solid var(--gold);
+        border-radius: 0 var(--radius) var(--radius) 0;
+        padding: 20px 24px;
+        margin-bottom: 28px;
+      }
+
+      .intro-box p {
+        font-size: 15px;
+        color: var(--text);
+      }
+
+      .steps {
+        counter-reset: step;
+        list-style: none;
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+      }
+
+      .steps li {
+        counter-increment: step;
+        display: flex;
+        gap: 16px;
+        align-items: flex-start;
+        background: white;
+        border: 1px solid var(--gray-light, #e7e0ec);
+        border-radius: 16px;
+        padding: 16px 18px;
+      }
+
+      .steps li::before {
+        content: counter(step);
+        width: 32px;
+        height: 32px;
+        border-radius: 50%;
+        background: var(--royal-red);
+        color: white;
+        font-weight: 800;
+        font-size: 14px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+      }
+
+      .steps strong {
+        display: block;
+        color: var(--royal-red);
+        margin-bottom: 4px;
+        font-size: 15px;
+      }
+
+      .steps span {
+        font-size: 14px;
+        color: var(--text-muted);
+      }
+
+      .nav-tabs {
+        display: flex;
+        gap: 12px;
+        margin: 24px 0;
+        flex-wrap: wrap;
+      }
+
+      .nav-tab {
+        flex: 1;
+        min-width: 140px;
+        text-align: center;
+        padding: 14px 12px;
+        border-radius: 14px;
+        background: var(--ivory);
+        border: 2px solid var(--gold-light);
+      }
+
+      .nav-tab em {
+        display: block;
+        font-style: normal;
+        font-weight: 800;
+        color: var(--royal-red);
+        font-size: 15px;
+        margin-bottom: 4px;
+      }
+
+      .nav-tab span {
+        font-size: 12px;
+        color: var(--text-muted);
+      }
+
+      .feature-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 14px;
+        margin-top: 20px;
+      }
+
+      .feature-tile {
+        background: var(--ivory);
+        border-radius: 16px;
+        padding: 16px;
+        border: 1px solid transparent;
+        transition: border-color 0.2s;
+      }
+
+      .feature-tile:hover {
+        border-color: var(--gold);
+      }
+
+      .feature-tile .icon {
+        font-size: 24px;
+        margin-bottom: 8px;
+      }
+
+      .feature-tile h4 {
+        font-size: 14px;
+        color: var(--royal-red);
+        margin-bottom: 6px;
+        font-weight: 700;
+      }
+
+      .feature-tile p {
+        font-size: 12px;
+        color: var(--text-muted);
+        line-height: 1.45;
+      }
+
+      .screenshot-slot {
+        margin-top: 24px;
+        border: 2px dashed var(--gold);
+        border-radius: var(--radius);
+        background: repeating-linear-gradient(
+          -45deg,
+          var(--ivory),
+          var(--ivory) 8px,
+          var(--ivory-dark) 8px,
+          var(--ivory-dark) 16px
+        );
+        min-height: 120px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+        padding: 20px;
+        color: var(--text-muted);
+        font-size: 13px;
+        font-weight: 600;
+      }
+
+      .ganesh-line {
+        text-align: center;
+        margin-top: 28px;
+        font-size: 18px;
+        color: var(--royal-red);
+        font-weight: 700;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="toolbar no-print">
+      <span>Bappaji brochure — open in Chrome → Print → Save as PDF</span>
+      <button type="button" onclick="window.print()">Save as PDF / Print</button>
+    </div>
+
+    <div class="wrap">
+      <!-- PAGE 1: COVER -->
+      <section class="sheet" aria-label="Cover">
+        <header class="cover-hero">
+          <p class="eyebrow">Bappaji.com · Eco-friendly Shadu Mati Ganpati Murti</p>
+          <h1 class="cover-title">Bappaji Booking</h1>
+          <p class="cover-sub">Ganeshay — Stall Booking &amp; Customer Care App</p>
+          <p class="cover-tagline mr">
+            बुकिंग, कॉल आणि WhatsApp — एकाच app मध्ये आपले stall व्यवस्थित चालवा.
+          </p>
+          <p class="cover-tagline-en">
+            Bookings, follow-up calls &amp; WhatsApp — all in one app for your Ganpati stall.
+          </p>
+        </header>
+        <div class="cover-body">
+          <div class="benefit-grid">
+            <article class="benefit-card">
+              <div class="benefit-icon" aria-hidden="true">📊</div>
+              <div>
+                <h3>Overview &amp; Reports</h3>
+                <p class="mr">
+                  आजच्या bookings, collection, pending — एका दृष्टीक्षेpet. वर्षानुसार Excel
+                  download.
+                </p>
+              </div>
+            </article>
+            <article class="benefit-card">
+              <div class="benefit-icon" aria-hidden="true">📱</div>
+              <div>
+                <h3>New Booking + WhatsApp</h3>
+                <p class="mr">
+                  booking save → receipt / invoice PDF → customer ला WhatsApp वर instant share.
+                </p>
+              </div>
+            </article>
+            <article class="benefit-card">
+              <div class="benefit-icon" aria-hidden="true">💬</div>
+              <div>
+                <h3>Tele-calling &amp; Tele-Messaging</h3>
+                <p class="mr">
+                  Excel / phone वरूn contacts import. Send details &amp; Review &amp; Request —
+                  Pending → Sent tracking.
+                </p>
+              </div>
+            </article>
+          </div>
+          <div class="cover-footer">
+            <span class="brand-pill">🙏 गणपती बाप्पा मोरया</span>
+            <div class="links">
+              <a href="https://bappaji.com">bappaji.com</a><br />
+              Instagram: <a href="https://www.instagram.com/bappaji_com">@bappaji_com</a>
+            </div>
+          </div>
+          <div class="screenshot-slot">
+            Replace this box: paste your <strong>Home screen</strong> screenshot here in Canva,
+            or drag an image over this area when editing HTML.
+          </div>
+        </div>
+      </section>
+
+      <!-- PAGE 2: FIRST DAY -->
+      <section class="sheet" aria-label="First day setup">
+        <header class="page-head">
+          <h2>First day — setup in 10 minutes</h2>
+          <span class="page-num">2</span>
+        </header>
+        <div class="page-content">
+          <div class="intro-box">
+            <p class="mr">
+              <strong>एकदाच Settings save करा</strong>, नंतर दररोज Home वरूn New Booking आणि
+              Tele-Messaging वापरा. Internet + WhatsApp installed असणे आवश्यक.
+            </p>
+          </div>
+          <ol class="steps">
+            <li>
+              <div>
+                <strong>Login</strong>
+                <span class="mr">Vendor email/password ने login. Account pending असल्यास admin approval थांबा.</span>
+              </div>
+            </li>
+            <li>
+              <div>
+                <strong>Settings → Business details</strong>
+                <span class="mr"
+                  >नाव, phone, address, Map link, Instagram, website. Logo upload करा →
+                  <strong>Save Settings</strong>.</span
+                >
+              </div>
+            </li>
+            <li>
+              <div>
+                <strong>WhatsApp messages</strong>
+                <span class="mr"
+                  >Tele-calling message (Send details) आणि Review &amp; Request message edit /
+                  Reset to Default.</span
+                >
+              </div>
+            </li>
+            <li>
+              <div>
+                <strong>Test booking</strong>
+                <span class="mr"
+                  >Home → New Booking → Save → Share receipt/PDF on WhatsApp → OK. पुढची booking
+                  blank form मध्यe उघडते.</span
+                >
+              </div>
+            </li>
+            <li>
+              <div>
+                <strong>Import contacts (optional)</strong>
+                <span class="mr"
+                  >Tele-calling किंवा Tele-Messaging → Excel / phone import. Same list दोन्ही
+                  features साठी.</span
+                >
+              </div>
+            </li>
+          </ol>
+          <p class="ganesh-line mr">🚩 गणपती बाप्पा मोरया! 🚩</p>
+        </div>
+      </section>
+
+      <!-- PAGE 3: NAVIGATION + QUICK ACTIONS -->
+      <section class="sheet" aria-label="Navigation">
+        <header class="page-head">
+          <h2>How to move in the app</h2>
+          <span class="page-num">3</span>
+        </header>
+        <div class="page-content">
+          <p style="font-size: 15px; color: var(--text-muted); margin-bottom: 8px">
+            Bottom bar (always visible):
+          </p>
+          <div class="nav-tabs">
+            <div class="nav-tab">
+              <em>Home</em>
+              <span class="mr">Quick actions + आजच्या bookings</span>
+            </div>
+            <div class="nav-tab">
+              <em>Overview</em>
+              <span class="mr">Stats cards — collection, pending, delivered</span>
+            </div>
+            <div class="nav-tab">
+              <em>Reports</em>
+              <span class="mr">Year bookings + customers → Excel</span>
+            </div>
+          </div>
+
+          <h3 style="color: var(--royal-red); margin: 28px 0 12px; font-size: 18px">
+            Home — Quick actions
+          </h3>
+          <div class="feature-grid">
+            <div class="feature-tile">
+              <div class="icon">➕</div>
+              <h4>New Booking</h4>
+              <p class="mr">Customer, mobile, price, advance, photo, save.</p>
+            </div>
+            <div class="feature-tile">
+              <div class="icon">🔍</div>
+              <h4>Search</h4>
+              <p class="mr">Name / mobile / booking number शोधा.</p>
+            </div>
+            <div class="feature-tile">
+              <div class="icon">📅</div>
+              <h4>Year Bookings</h4>
+              <p class="mr">या वर्षाच्या सर्व bookings list.</p>
+            </div>
+            <div class="feature-tile">
+              <div class="icon">📞</div>
+              <h4>Tele-calling</h4>
+              <p class="mr">Call + Send details (WhatsApp).</p>
+            </div>
+            <div class="feature-tile">
+              <div class="icon">💚</div>
+              <h4>Tele-Messaging</h4>
+              <p class="mr">Send details / Review &amp; Request.</p>
+            </div>
+            <div class="feature-tile">
+              <div class="icon">⚙️</div>
+              <h4>Settings</h4>
+              <p class="mr">Business + messages + logo.</p>
+            </div>
+          </div>
+          <div class="screenshot-slot" style="margin-top: 20px">
+            Add screenshot: <strong>Home</strong> + <strong>Overview</strong> side by side
+          </div>
+        </div>
+      </section>
+
+      <!-- PAGE 4: TELE + TIPS -->
+      <section class="sheet" aria-label="Tele features">
+        <header class="page-head">
+          <h2>Tele-calling &amp; Tele-Messaging</h2>
+          <span class="page-num">4</span>
+        </header>
+        <div class="page-content">
+          <div class="feature-grid" style="grid-template-columns: 1fr">
+            <div class="feature-tile" style="background: white; border: 1px solid var(--gold-light)">
+              <h4>📞 Tele-calling — steps</h4>
+              <p class="mr" style="font-size: 14px; margin-top: 8px">
+                1) Import Excel / phone / call log &nbsp;→&nbsp; 2) Tap contact &nbsp;→&nbsp; 3)
+                <strong>Call</strong> or <strong>Send details</strong> (Settings मधील message) &nbsp;→&nbsp;
+                4) Status update (Called / Call back).
+              </p>
+            </div>
+            <div class="feature-tile" style="background: white; border: 1px solid var(--gold-light)">
+              <h4>💬 Tele-Messaging — steps</h4>
+              <p class="mr" style="font-size: 14px; margin-top: 8px">
+                1) <strong>Pending</strong> tab &nbsp;→&nbsp; 2) <strong>Send</strong> &nbsp;→&nbsp;
+                <strong>Send details</strong> (Sent मध्यe जातo) किंवा
+                <strong>Review &amp; Request</strong> (Google review link + Instagram) &nbsp;→&nbsp; 3)
+                <strong>Sent</strong> tab मध्यe track करा.
+              </p>
+            </div>
+            <div class="feature-tile" style="background: white; border: 1px solid var(--gold-light)">
+              <h4>📥 Import Contacts (full page)</h4>
+              <p class="mr" style="font-size: 14px; margin-top: 8px">
+                Sample Excel download → Name + Mobile भरा → Upload → Preview मध्यe valid/invalid
+                पहा → Import. Tele-calling &amp; Tele-Messaging दोन्हीला same contacts.
+              </p>
+            </div>
+          </div>
+
+          <h3 style="color: var(--royal-red); margin: 28px 0 12px; font-size: 18px">Do ✅ / Don’t ❌</h3>
+          <div class="feature-grid">
+            <div class="feature-tile">
+              <h4>✅ Do</h4>
+              <p class="mr">Settings save after change. WhatsApp share आधी mobile तपासा. Reports → Excel backup.</p>
+            </div>
+            <div class="feature-tile">
+              <h4>❌ Don’t</h4>
+              <p class="mr">Tele-Messaging “Delete all contacts” without backup. Login share करू नका.</p>
+            </div>
+          </div>
+
+          <div class="cover-footer" style="margin-top: 32px; border-top: none; padding-top: 0">
+            <span class="brand-pill">Bappaji.com</span>
+            <p class="links mr" style="text-align: right">
+              <strong>आम्ही साकारतो तुमच्या मनातला बाप्पा!</strong> ❤️🙏
+            </p>
+          </div>
+        </div>
+      </section>
+    </div>
+  </body>
+</html>
