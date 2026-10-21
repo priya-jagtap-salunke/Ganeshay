@@ -4,7 +4,6 @@ import {
   type TurboModule,
 } from 'react-native';
 import * as FileSystem from 'expo-file-system';
-import Share from 'react-native-share';
 import {
   whatsAppSocialForKind,
   whatsAppPhoneDigits,
@@ -220,6 +219,12 @@ async function prepareShareableFileUrl(
 export async function shareWhatsAppMedia(
   params: WhatsAppMediaShareParams
 ): Promise<void> {
+  if (Platform.OS === 'web') {
+    throw new Error('WhatsApp media share is only available in the mobile app.');
+  }
+
+  // Static import crashes web: react-native-share touches a native module at load.
+  const Share = (await import('react-native-share')).default;
   const social = whatsAppSocialForKind(Share, params.appKind);
   const targetPhone = params.targetPhone !== false;
   const isPdf = isPdfShare(params.type, params.url);
